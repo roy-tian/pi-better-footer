@@ -1,0 +1,48 @@
+{
+  "name": "pi-better-footer",
+  "version": "0.1.0",
+  "description": "A compact status footer with provider quotas, Git status, and session usage for Pi",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "footer",
+    "status"
+  ],
+  "license": "MIT",
+  "author": "Roy Tian",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/roy-tian/pi-better-footer.git"
+  },
+  "homepage": "https://github.com/roy-tian/pi-better-footer#readme",
+  "bugs": "https://github.com/roy-tian/pi-better-footer/issues",
+  "pi": {
+    "extensions": [
+      "./extensions/better-footer/index.ts"
+    ]
+  },
+  "files": [
+    "extensions",
+    "README.md",
+    "README_zh.md"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@earendil-works/pi-coding-agent": "^0.87.1",
+    "@earendil-works/pi-tui": "^0.87.1",
+    "@types/node": "^22.19.19",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "test": "node --experimental-vm-modules --test tests/*.test.mjs && bun test tests/status-footer.test.ts",
+    "lint": "biome check",
+    "format": "biome check --write",
+    "typecheck": "tsc --noEmit",
+    "build:check": "bun build extensions/better-footer/index.ts --target=node --packages external --outdir .temp/build"
+  }
+}

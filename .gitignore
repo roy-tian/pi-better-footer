@@ -1,0 +1,22 @@
+# Dependencies and generated files
+node_modules/
+.temp/
+dist/
+coverage/
+artifacts/
+*.tsbuildinfo
+*.log
+
+# Local credentials (keep example files trackable)
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~
