@@ -7,9 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 
-const source = stripTypeScriptTypes(
-	await readFile(new URL("../extensions/better-footer/recent-model.ts", import.meta.url), "utf8"),
-);
+const source = stripTypeScriptTypes(await readFile(new URL("../extensions/recent-model.ts", import.meta.url), "utf8"));
 const modelA = { provider: "test", id: "a", reasoning: true };
 const modelB = { provider: "test", id: "b", reasoning: true };
 const plainModel = { provider: "test", id: "plain", reasoning: false };

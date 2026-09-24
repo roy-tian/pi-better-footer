@@ -19,7 +19,7 @@
   "bugs": "https://github.com/roy-tian/pi-better-footer/issues",
   "pi": {
     "extensions": [
-      "./extensions/better-footer/index.ts"
+      "./extensions/index.ts"
     ]
   },
   "files": [
@@ -43,6 +43,6 @@
     "lint": "biome check",
     "format": "biome check --write",
     "typecheck": "tsc --noEmit",
-    "build:check": "bun build extensions/better-footer/index.ts --target=node --packages external --outdir .temp/build"
+    "build:check": "bun build extensions/index.ts --target=node --packages external --outdir .temp/build"
   }
 }

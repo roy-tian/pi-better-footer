@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 
 const source = stripTypeScriptTypes(
-	await readFile(new URL("../extensions/better-footer/quota/provider-quota.ts", import.meta.url), "utf8"),
+	await readFile(new URL("../extensions/quota/provider-quota.ts", import.meta.url), "utf8"),
 );
 const window = (percent) => ({ scope: "codex:primary", percent, hasReset: false, resetSec: 0, capturedAt: Date.now() });
 

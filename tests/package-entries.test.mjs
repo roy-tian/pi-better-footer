@@ -6,7 +6,7 @@ const packageUrl = new URL("../package.json", import.meta.url);
 
 test("one Pi package declares a single better-footer extension entry", async () => {
 	const manifest = JSON.parse(await readFile(packageUrl, "utf8"));
-	assert.deepEqual(manifest.pi.extensions, ["./extensions/better-footer/index.ts"]);
+	assert.deepEqual(manifest.pi.extensions, ["./extensions/index.ts"]);
 	for (const entry of manifest.pi.extensions) {
 		assert.ok((await stat(new URL(`../${entry}`, import.meta.url))).isFile(), entry);
 	}

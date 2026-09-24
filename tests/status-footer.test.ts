@@ -11,9 +11,9 @@ import {
 	parseCodexUsageHeaders,
 	readZaiRateLimits,
 	readOpenCodeGoRateLimits,
-} from "../extensions/better-footer/quota/quotas.ts";
-import { summarizeSessionUsage } from "../extensions/better-footer/footer/session-stats.ts";
-import { readGitChanges } from "../extensions/better-footer/footer/git.ts";
+} from "../extensions/quota/quotas.ts";
+import { summarizeSessionUsage } from "../extensions/footer/session-stats.ts";
+import { readGitChanges } from "../extensions/footer/git.ts";
 
 const at = Date.now();
 

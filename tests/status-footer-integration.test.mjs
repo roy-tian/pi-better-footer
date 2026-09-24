@@ -4,9 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { test } from "node:test";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 
-const source = stripTypeScriptTypes(
-	await readFile(new URL("../extensions/better-footer/footer/index.ts", import.meta.url), "utf8"),
-);
+const source = stripTypeScriptTypes(await readFile(new URL("../extensions/footer/index.ts", import.meta.url), "utf8"));
 const deferred = () => {
 	let resolve;
 	const promise = new Promise((done) => {
@@ -437,7 +435,7 @@ test("token speed starts at the first streamed token and leaves out hidden reaso
 
 async function loadRender() {
 	const renderSource = stripTypeScriptTypes(
-		await readFile(new URL("../extensions/better-footer/footer/render.ts", import.meta.url), "utf8"),
+		await readFile(new URL("../extensions/footer/render.ts", import.meta.url), "utf8"),
 	);
 	const context = createContext({ process, console });
 	const module = new SourceTextModule(renderSource, { context });

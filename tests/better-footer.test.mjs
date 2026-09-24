@@ -28,7 +28,7 @@ test("one entry registers all features; settings toggle independently and persis
 	let stored = { keepRecentModel: true, skipExhaustedScopedModels: true };
 	const registered = [];
 	const commands = new Map();
-	const module = await load("../extensions/better-footer/index.ts", {
+	const module = await load("../extensions/index.ts", {
 		"./footer/index": { default: () => registered.push("footer") },
 		"./recent-model": { default: (_pi, options) => registered.push(["recent", options]) },
 		"./skip-unavailable": { default: (_pi, options) => registered.push(["skip", options]) },
@@ -62,7 +62,7 @@ test("the settings menu builds on changes another Pi process saved", async () =>
 	let stored = { keepRecentModel: true, skipExhaustedScopedModels: true };
 	let recent;
 	let command;
-	const module = await load("../extensions/better-footer/index.ts", {
+	const module = await load("../extensions/index.ts", {
 		"./footer/index": { default() {} },
 		"./recent-model": {
 			default: (_pi, options) => {
@@ -107,7 +107,7 @@ test("the settings menu builds on changes another Pi process saved", async () =>
 
 test("a failed settings save leaves both toggles unchanged", async () => {
 	const calls = [];
-	const module = await load("../extensions/better-footer/index.ts", {
+	const module = await load("../extensions/index.ts", {
 		"./footer/index": { default() {} },
 		"./recent-model": { default: (_pi, options) => calls.push(options.enabled) },
 		"./skip-unavailable": { default: (_pi, options) => calls.push(options.enabled) },
@@ -137,7 +137,7 @@ test("a failed settings save leaves both toggles unchanged", async () => {
 test("settings use defaults for missing/invalid fields and save atomically", async (t) => {
 	const dir = await mkdtemp(join(tmpdir(), "better-footer-test-"));
 	t.after(() => rm(dir, { recursive: true, force: true }));
-	const settings = await load("../extensions/better-footer/settings.ts", {
+	const settings = await load("../extensions/settings.ts", {
 		"@earendil-works/pi-coding-agent": { getAgentDir: () => dir },
 	});
 	assert.deepEqual({ ...settings.loadSettings() }, { keepRecentModel: true, skipExhaustedScopedModels: true });

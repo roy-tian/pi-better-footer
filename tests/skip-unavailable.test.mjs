@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 
 const source = stripTypeScriptTypes(
-	await readFile(new URL("../extensions/better-footer/skip-unavailable.ts", import.meta.url), "utf8"),
+	await readFile(new URL("../extensions/skip-unavailable.ts", import.meta.url), "utf8"),
 );
 // The skip check runs detached after Pi's cycle; let its timers and reads finish.
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));

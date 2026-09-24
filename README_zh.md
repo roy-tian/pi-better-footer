@@ -41,7 +41,7 @@ pi install /absolute/path/to/pi-better-footer
 或者在仓库目录中临时试用（不加载其他扩展）：
 
 ```sh
-pi --no-extensions --extension ./extensions/better-footer/index.ts
+pi --no-extensions --extension ./extensions/index.ts
 ```
 
 安装后启动 Pi；如果没有生效，请在 `pi config` 中确认 **better-footer** 已启用。状态栏、模型记忆和额度跳过功能都包含在同一个扩展里，无需分别启用。如果之前单独安装过同类扩展，请先在 `pi config` 中停用旧版本，避免重复显示或处理。使用本地包时，修改源码后运行 Pi 的 `/reload` 或重新启动即可生效。
@@ -64,7 +64,7 @@ pi --no-extensions --extension ./extensions/better-footer/index.ts
 | GitHub Copilot | Pi 登录记录中的 premium credits。 |
 | 其他 provider | 支持时读取 API 返回的限流响应头（不一定代表订阅额度）。 |
 
-额度读取是尽力而为：当前 provider 的部分来源会周期查询，其他来源依赖响应头；没有返回、认证失败或数据过期时，不会当作额度耗尽。扩展读取本机已有的认证信息，不在仓库中存放凭据。OpenCode Go 的可选配置路径与环境变量见 [`extensions/better-footer/quota/opencode-go.ts`](extensions/better-footer/quota/opencode-go.ts)。
+额度读取是尽力而为：当前 provider 的部分来源会周期查询，其他来源依赖响应头；没有返回、认证失败或数据过期时，不会当作额度耗尽。扩展读取本机已有的认证信息，不在仓库中存放凭据。OpenCode Go 的可选配置路径与环境变量见 [`extensions/quota/opencode-go.ts`](extensions/quota/opencode-go.ts)。
 
 ## 开发
 

@@ -40,7 +40,7 @@ pi install /absolute/path/to/pi-better-footer
 To try the extension from the repository without installing it:
 
 ```sh
-pi --no-extensions --extension ./extensions/better-footer/index.ts
+pi --no-extensions --extension ./extensions/index.ts
 ```
 
 Restart Pi after installing; if the extension does not appear, check `pi config`. The package declares **one** extension entry, `better-footer`; there are no separate components to enable. Disable any older standalone footer or model-cycling extensions to avoid duplicate handlers. Local installs load directly from the source directory, so `/reload` or a restart picks up changes.
@@ -65,7 +65,7 @@ Settings live in `better-footer.json` under Pi's agent directory (normally `~/.p
 | GitHub Copilot | Premium credits from Pi's authentication record. |
 | Other providers | Rate-limit response headers, when available (not necessarily subscription balances). |
 
-Quota reads are best-effort: some sources are polled while the current provider is active, and others update only after a provider response. Missing, failed, or stale readings do **not** mean a provider is unusable. The extension uses your existing local credentials; credentials are not committed to this repository. Optional OpenCode Go configuration details are in [`extensions/better-footer/quota/opencode-go.ts`](extensions/better-footer/quota/opencode-go.ts).
+Quota reads are best-effort: some sources are polled while the current provider is active, and others update only after a provider response. Missing, failed, or stale readings do **not** mean a provider is unusable. The extension uses your existing local credentials; credentials are not committed to this repository. Optional OpenCode Go configuration details are in [`extensions/quota/opencode-go.ts`](extensions/quota/opencode-go.ts).
 
 ## Development
 

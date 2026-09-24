@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Guidance for coding agents working in this repository: a Pi extension package
-whose single entry is `extensions/better-footer/index.ts`.
+whose single entry is `extensions/index.ts`.
 
 ## Commands
 
