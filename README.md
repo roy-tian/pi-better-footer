@@ -14,7 +14,7 @@ openai-codex/model high · 5h 72% · 1d 48% · 36t/s    ↑62k/1.2M ↓8k CH75.0
 ## Why use it?
 
 - **A clean footer with quota visibility.** One line shows the active provider/model, thinking level, remaining quota and time until reset (when available), output speed, session tokens, cache hit rate, and context usage. OpenAI Codex, Z.AI / GLM, OpenCode Go, and GitHub Copilot have dedicated quota sources; other providers can expose rate limits through response headers. Only the active provider's quota appears in the footer.
-- **Git status where you work.** A right-aligned line above the editor shows the working directory, branch, and added/removed line counts, including untracked files. Git changes refresh periodically (about every five seconds).
+- **Git status where you work.** A right-aligned line above the editor shows the working directory, branch, and added/removed line counts, including untracked files. Counts are re-read whenever the tree may have changed (tool runs, submitted prompts, branch switches, `!` shell commands) — not on a fixed timer.
 - **Keep your workflow across sessions.** Remember the last model and thinking level per working directory for new sessions and fresh Pi starts, without changing Pi's saved defaults. When cycling scoped models with `Ctrl+P` (or your configured cycle keys), skip providers **known** to have exhausted quota. Both behaviors are on by default and can be turned off independently. Unknown quota is never treated as exhausted.
 
 ## Install
