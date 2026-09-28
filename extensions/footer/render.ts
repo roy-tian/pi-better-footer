@@ -26,14 +26,19 @@ function footerWarningColor(theme: FooterTheme | undefined): string {
 	return isLightFooterTheme(theme) ? "syntaxFunction" : "warning";
 }
 
+/** SGR foreground colour with a truecolor RGB value and an xterm-256 fallback. */
+function sgrColor(theme: FooterTheme, rgb: readonly [number, number, number], xterm: number): string {
+	if (theme.getColorMode?.() === "256color") return `\x1b[38;5;${xterm}m`;
+	return `\x1b[38;2;${rgb[0]};${rgb[1]};${rgb[2]}m`;
+}
+
 /** High-contrast orange specifically for context warnings on light themes. */
 function styleContextWarning(theme: FooterTheme | undefined, text: string): string {
 	if (!theme) return text;
 	if (!isLightFooterTheme(theme)) return theme.fg("warning", text);
 	// Truecolor: orange-700 (#c2410c), 5.18:1 against white.
 	// 256-color fallback: xterm 130 (#af5f00), 4.71:1 against white.
-	const open = theme.getColorMode?.() === "256color" ? "\x1b[38;5;130m" : "\x1b[38;2;194;65;12m";
-	return `${open}${text}\x1b[39m`;
+	return `${sgrColor(theme, [194, 65, 12], 130)}${text}\x1b[39m`;
 }
 
 /**
@@ -78,15 +83,7 @@ function styleSessionStat(theme: FooterTheme | undefined, text: string): string 
 function styleCachedTokens(theme: FooterTheme | undefined, text: string): string {
 	if (!theme) return text;
 	const light = isLightFooterTheme(theme);
-	const open =
-		theme.getColorMode?.() === "256color"
-			? light
-				? "\x1b[38;5;247m"
-				: "\x1b[38;5;245m"
-			: light
-				? "\x1b[38;2;154;154;154m"
-				: "\x1b[38;2;144;144;144m";
-	return `${open}${text}\x1b[39m`;
+	return `${sgrColor(theme, light ? [154, 154, 154] : [144, 144, 144], light ? 247 : 245)}${text}\x1b[39m`;
 }
 
 /** pi's compact token formatter for footer session statistics. */
