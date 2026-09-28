@@ -203,6 +203,33 @@ test("a model chosen while the skip's model switch is pending is left alone", as
 	h.stop();
 });
 
+test("a cycle starts every scoped provider's quota read at once", async () => {
+	const started = [];
+	const gates = {};
+	const quotas = new Map([
+		["openai-codex", { windows: [window(80)] }],
+		["zai", { windows: [window(0)] }],
+		["opencode-go", { windows: [window(80)] }],
+	]);
+	const h = await harness(quotas, async (provider) => {
+		started.push(provider);
+		await new Promise((resolve) => {
+			gates[provider] = resolve;
+		});
+		return quotas.get(provider);
+	});
+	h.start();
+	h.input("app.model.cycleForward");
+	h.select(1);
+	await settle();
+	// All three providers' reads started together; none waited for another.
+	assert.deepEqual([...started].sort(), ["openai-codex", "opencode-go", "zai"]);
+	for (const resolve of Object.values(gates)) resolve();
+	await settle();
+	assert.deepEqual(h.selected, [models[2].model, "medium"]);
+	h.stop();
+});
+
 test("missing quota is not proof a model is unavailable", async () => {
 	const h = await harness();
 	h.start();

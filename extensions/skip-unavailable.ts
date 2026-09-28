@@ -87,14 +87,31 @@ export default function (pi: ExtensionAPI, options: { enabled: () => boolean } =
 		let startIndex = models.findIndex((item) => sameModel(item.model, event.model));
 		if (startIndex < 0) startIndex = 0;
 
-		const quotaByProvider = new Map<string, Awaited<ReturnType<typeof readProviderQuota>>>();
+		const quotaByProvider = new Map<string, Promise<Awaited<ReturnType<typeof readProviderQuota>>>>();
+		// Start every scoped provider's read at once so their timeouts overlap;
+		// stacked sequential reads could delay the correction long past the Ctrl+P
+		// that started it. Reads are cached and coalesced per provider, so cycling
+		// repeatedly does not multiply them. readProviderQuota never rejects; the
+		// catch keeps a prefetch abandoned by an early return non-fatal.
+		const prefetch = (provider: string) => {
+			let read = quotaByProvider.get(provider);
+			if (!read) {
+				read = readProviderQuota(provider, ctx);
+				void read.catch(() => undefined);
+				quotaByProvider.set(provider, read);
+			}
+			return read;
+		};
+		for (const item of models) void prefetch(item.model.provider);
+
 		const skipped: string[] = [];
 		for (let step = 0; step < models.length; step++) {
 			const item = models[(startIndex + step * direction + models.length * 2) % models.length];
 			const provider = item.model.provider;
-			if (!quotaByProvider.has(provider)) quotaByProvider.set(provider, await readProviderQuota(provider, ctx));
+			// The reads above all started together; each await normally settles at once.
+			const snapshot = await prefetch(provider);
 			if (superseded()) return;
-			if (isQuotaExhausted(quotaByProvider.get(provider))) {
+			if (isQuotaExhausted(snapshot)) {
 				skipped.push(`${provider}/${item.model.id} (quota exhausted)`);
 				continue;
 			}
