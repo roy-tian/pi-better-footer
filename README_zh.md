@@ -6,17 +6,14 @@
 
 ## 能做什么
 
-- **清晰的状态栏，按当前 provider 显示额度。** 底部一行展示模型与思考强度、额度剩余百分比及重置倒计时、生成速度、会话 token / 缓存命中率和上下文占用。支持 OpenAI Codex、Z.AI / GLM、OpenCode Go、GitHub Copilot 等来源；其他 provider 若返回限流响应头，也会显示可用的额度信息。额度信息会随当前模型切换更新，并尽力定期刷新；查不到时不会虚构数值。
+- **清晰的状态栏，按当前 provider 显示额度。** 底部一行展示模型与思考强度、额度剩余百分比及重置倒计时、生成速度、会话 token / 缓存命中率、会话花费和上下文占用。支持 OpenAI Codex、Z.AI / GLM、OpenCode Go、GitHub Copilot 等来源；其他 provider 若返回限流响应头，也会显示可用的额度信息。额度信息会随当前模型切换更新，并尽力定期刷新；查不到时不会虚构数值。
 - **实时 Git 信息。** 输入框上方显示工作目录、分支及 `+新增/-删除` 行数（含未跟踪文件）；每当工作区可能变化（工具运行、提交输入、切换分支、执行 `!` 命令等）即自动重新读取，无需定时轮询或手动运行 `git status`。
 - **记住模型与思考强度。** 按工作目录记录最近使用的设置，在新会话或重新启动 Pi 时恢复，不修改 Pi 的默认设置；已有会话继续遵循 Pi 自身的恢复机制。需要时可关闭，也可用 `--no-recent-model` 仅对本次运行停用。
 - **跳过额度已耗尽的 scoped model。** 在交互界面用 `Ctrl+P` 轮换模型时，自动跳过**已确认**额度耗尽的 provider，不必一个个试；反向轮换也支持。未取得额度信息不等于额度耗尽，因此不会因为查询失败而跳过。此功能可单独关闭，不影响状态栏显示额度。
 
 示意（具体字段取决于 provider、终端宽度和可用数据）：
 
-```text
-                                      ~/project  main · +12 -3
-openai-codex/model high · 5h 72% · 1d 48% · 36t/s    ↑62k/1.2M ↓8k CH75.0% · 66k/1.0M
-```
+![pi-better-footer 演示](assets/pi-better-footer.svg)
 
 ## 安装与使用
 
@@ -59,7 +56,7 @@ pi --no-extensions --extension ./extensions/index.ts
 | Provider | 数据来源 |
 | --- | --- |
 | OpenAI Codex | Codex app-server 的额度信息，必要时结合响应头；需要 `codex` CLI。 |
-| Z.AI / GLM | 使用 Pi 已配置的 provider 密钥查询账户额度；遇到 429 时可从错误信息补充。 |
+| Z.AI / GLM | 使用 Pi 已配置的 provider 密钥查询账户额度；遇到 429 时可从错误信息补充。月度工具调用额度用锤子图标标记（需 [Nerd Font](https://www.nerdfonts.com/)）。 |
 | OpenCode Go | 使用 `OPENCODE_GO_API_KEY`、Pi 中配置的 key 或 OpenCode CLI 凭据访问用量 API；也可使用可选的 dashboard cookie 配置作为后备。 |
 | GitHub Copilot | Pi 登录记录中的 premium credits。 |
 | 其他 provider | 支持时读取 API 返回的限流响应头（不一定代表订阅额度）。 |

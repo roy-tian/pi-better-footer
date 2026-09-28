@@ -262,13 +262,14 @@ test("session stats reuse append-only history, but reset after replacement", () 
 	const manager = { getEntries: () => entries } as never;
 	const firstStats = summarizeSessionUsage(manager);
 	assert.equal(firstStats.latestHit, 50);
-	assert.deepEqual(firstStats.totals, { input: 5, output: 2, cacheRead: 5, cacheWrite: 0 });
+	assert.deepEqual(firstStats.totals, { input: 5, output: 2, cacheRead: 5, cacheWrite: 0, cost: 0 });
 	summarizeSessionUsage(manager);
 	assert.equal(reads, 1);
 	entries.push({ type: "message", message: { role: "toolResult", usage: { output: 3 } } });
 	assert.equal(summarizeSessionUsage(manager).totals.output, 5);
-	entries.push({ type: "usage", usage: { input: 7, output: 1 } });
+	entries.push({ type: "usage", usage: { input: 7, output: 1, cost: { total: 0.25 } } });
 	assert.equal(summarizeSessionUsage(manager).totals.input, 12);
+	assert.equal(summarizeSessionUsage(manager).totals.cost, 0.25);
 	assert.equal(reads, 1);
 	entries.splice(0, entries.length, { type: "message", message: { role: "assistant", usage: { input: 10 } } });
 	assert.equal(summarizeSessionUsage(manager).totals.input, 10);

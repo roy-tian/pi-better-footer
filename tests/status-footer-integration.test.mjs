@@ -453,18 +453,17 @@ async function loadRender() {
 	);
 	const context = createContext({ process, console });
 	const module = new SourceTextModule(renderSource, { context });
+	const sessionStats = {
+		totals: { input: 1200, output: 200, cacheRead: 500, cacheWrite: 0, cost: 0.1234 },
+		latestHit: 29.4,
+	};
 	const dependencies = {
 		"@earendil-works/pi-tui": {
 			visibleWidth: (text) => text.length,
 			truncateToWidth: (text, width) => text.slice(0, Math.max(0, width)),
 		},
 
-		"./session-stats": {
-			summarizeSessionUsage: () => ({
-				totals: { input: 1200, output: 200, cacheRead: 500, cacheWrite: 0 },
-				latestHit: 29.4,
-			}),
-		},
+		"./session-stats": { summarizeSessionUsage: () => sessionStats },
 		"../quota/quotas": { COPILOT_PROVIDER: "github-copilot" },
 	};
 	await module.link(async (specifier) => {
@@ -479,7 +478,7 @@ async function loadRender() {
 		);
 	});
 	await module.evaluate();
-	return module;
+	return { namespace: module.namespace, sessionStats };
 }
 
 test("the project path abbreviates HOME only at a real path boundary", async (t) => {
@@ -549,4 +548,69 @@ test("footer fits narrow terminal widths without losing the model prefix", async
 	assert.match(error, /<error:↓><muted:200>/);
 	assert.match(error, /<error:CH><muted:29\.4%>/);
 	assert.match(error, /<error:95k>/);
+	// The session cost keeps pi's own footer format, accent $ and muted amount.
+	assert.match(error, /<error:\$><muted:0\.123>/);
+});
+
+test("session cost sits left of the context segment and hides when unpriced", async () => {
+	const module = await loadRender();
+	const h = {
+		state: {
+			currentModelProvider: "anthropic",
+			currentModelId: "claude",
+			currentModelReasoning: false,
+			thinkingLevel: "off",
+			rateWindows: [],
+			tokenSpeed: null,
+		},
+		ctx: {
+			sessionManager: { getEntries: () => [] },
+			getContextUsage: () => ({ tokens: 50000, percent: 50, contextWindow: 100000 }),
+		},
+		footerData: { getExtensionStatuses: () => new Map() },
+		theme: { name: "dark", fg: (color, text) => `<${color}:${text}>`, bold: (text) => text },
+	};
+	const [line] = module.namespace.renderFooter(h, 500);
+	assert.match(line, /<accent:\$><muted:0\.123>/);
+	// Between the cache-hit stat and the context-window segment.
+	assert.ok(line.indexOf("<accent:$>") > line.indexOf("<accent:CH>"));
+	assert.ok(line.indexOf("<accent:$>") < line.indexOf("<accent:50k>"));
+	// Subscription-backed models never report a cost; nothing stands in for one.
+	module.sessionStats.totals.cost = 0;
+	const [noCost] = module.namespace.renderFooter(h, 500);
+	assert.doesNotMatch(noCost, /\$/);
+});
+
+test("the Z.AI monthly tool quota is marked with a hammer in the label color", async () => {
+	const module = await loadRender();
+	const at = Date.now();
+	const h = {
+		state: {
+			currentModelProvider: "zai-coding-cn",
+			currentModelId: "glm-4.7",
+			currentModelReasoning: false,
+			thinkingLevel: "off",
+			rateWindows: [
+				{ scope: "zai:3", percent: 40, hasReset: true, resetSec: 2.5 * 3600, capturedAt: at },
+				{ scope: "zai:6", percent: 60, hasReset: true, resetSec: 6.5 * 86400, capturedAt: at },
+				{ scope: "zai:monthly", percent: 97, hasReset: false, resetSec: 0, capturedAt: at },
+			],
+			tokenSpeed: null,
+		},
+		ctx: {
+			sessionManager: { getEntries: () => [] },
+			getContextUsage: () => ({ tokens: 50000, percent: 50, contextWindow: 100000 }),
+		},
+		footerData: { getExtensionStatuses: () => new Map() },
+		theme: { name: "dark", fg: (color, text) => `<${color}:${text}>`, bold: (text) => text },
+	};
+	const [line] = module.namespace.renderFooter(h, 500);
+	assert.match(line, /<dim:2h> <muted:40%>/);
+	assert.match(line, /<dim:6d> <muted:60%>/);
+	// nf-fa-hammer (U+EEFF) shares the countdown-label color on both themes.
+	assert.match(line, /<dim:\uEEFF> <muted:97%>/);
+	h.theme = { name: "light", fg: (color, text) => `<${color}:${text}>`, bold: (text) => text };
+	const [light] = module.namespace.renderFooter(h, 500);
+	assert.match(light, /<accent:2h> <muted:40%>/);
+	assert.match(light, /<accent:\uEEFF> <muted:97%>/);
 });

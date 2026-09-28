@@ -8,12 +8,14 @@
  * Footer left:
  *   provider/model effort · quota windows · t/s
  * Footer right:
- *   ↑input/cache ↓output CH% · context/window
+ *   ↑input/cache ↓output CH% $cost · context/window
  *
- * Cost and subscription markers are intentionally omitted. Cached input tokens
- * are shown after the input total in a faint light gray; the current context
- * usage (accent, with warning thresholds) and the dim context-window total
- * close the line.
+ * The session cost keeps pi's own footer format ("$0.123", colored $) and
+ * appears only when the model reports cost rates; subscriptions stay marked by
+ * their quota windows instead of a "$0.000 (sub)" placeholder. Cached input
+ * tokens are shown after the input total in a faint light gray; the current
+ * context usage (accent, with warning thresholds) and the dim context-window
+ * total close the line.
  *
  * Rate-limit windows (5h / weekly / total) come from provider-specific sources:
  * - OpenAI Codex subscription: official Codex App Server `account/rateLimits/read`
@@ -24,7 +26,7 @@
  *   OPENCODE_GO_WORKSPACE_ID + OPENCODE_GO_AUTH_COOKIE
  * - ZAI (zai / zai-coding-cn): account quota monitor endpoint — api.z.ai or
  *   the open.bigmodel.cn China mirror, per provider — with 429 error-body
- *   fallback
+ *   fallback; the monthly tool-invocation window is marked with a hammer icon
  * - Other providers: auto-detected response headers (`x-ratelimit-*`, etc.)
  *
  * Token speed covers only the streamed part of each assistant reply: time to

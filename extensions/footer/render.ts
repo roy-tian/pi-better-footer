@@ -95,6 +95,9 @@ function formatTokens(count: number): string {
 	return `${Math.round(count / 1_000_000)}M`;
 }
 
+/** nf-fa-hammer (Nerd Fonts, U+EEFF): the Z.AI monthly tool-invocation quota. */
+const TOOL_QUOTA_ICON = "\uEEFF";
+
 /** Compact time-until-reset using only the largest unit: 6d / 1h / 30m. */
 function fmtReset(sec: number): string {
 	if (sec <= 0) return "0s";
@@ -243,6 +246,11 @@ export function renderFooter(H: FooterRenderHandle & { theme?: FooterTheme }, wi
 		let label: string | undefined;
 		if (w.hasReset) {
 			label = styleResetLabel(theme, fmtReset(Math.max(0, w.resetSec - (Date.now() - w.capturedAt) / 1000)));
+		} else if (w.scope === "zai:monthly") {
+			// The monthly Z.AI window meters tool invocations (search, web reader,
+			// zread), not model usage: a hammer icon (nf-fa-hammer, U+EEFF) marks it
+			// as such, colored like the 5h/7d countdown labels beside it.
+			label = styleResetLabel(theme, TOOL_QUOTA_ICON);
 		}
 		modelSegments.push(label ? `${label} ${pct}` : pct);
 	}
@@ -264,7 +272,7 @@ export function renderFooter(H: FooterRenderHandle & { theme?: FooterTheme }, wi
 		);
 	}
 
-	// -- Right: session statistics, with no cost or subscription marker ------
+	// -- Right: session statistics, closed by the context-window segment --
 	const { totals, latestHit } = summarizeSessionUsage(ctx?.sessionManager);
 	const usage = ctx?.getContextUsage();
 	const contextTokens = usage?.tokens ?? null;
@@ -293,6 +301,12 @@ export function renderFooter(H: FooterRenderHandle & { theme?: FooterTheme }, wi
 		totals.cacheRead > 0 && latestHit !== undefined
 			? `${styleContextAccent("CH")}${styleSessionStat(theme, `${latestHit.toFixed(1)}%`)}`
 			: undefined;
+	// Session cost ("$0.123"), pi's own footer format: the $ shares the accent
+	// color of the ↑/↓/CH markers, the amount stays muted. Only models with
+	// cost rates report one; subscription-backed providers show quota windows
+	// instead, so their cost stays hidden rather than reading "$0.000 (sub)".
+	const costPart =
+		totals.cost > 0 ? `${styleContextAccent("$")}${styleSessionStat(theme, totals.cost.toFixed(3))}` : undefined;
 	// Context-window segment: current context tokens / window total ("66k/1.0M").
 	// The usage number is accent (warning/error past its thresholds); the fixed
 	// total stays dim, mirroring the cwd/branch split of the project line.
@@ -303,11 +317,11 @@ export function renderFooter(H: FooterRenderHandle & { theme?: FooterTheme }, wi
 				? `${contextPart}/${dim(formatTokens(contextWindow))}`
 				: contextPart;
 
-	const quantityStats = [inputPart, outputPart, hitPart].filter((part): part is string => part !== undefined);
-	const compactQuantity = [inputPart, outputPart].filter((part): part is string => part !== undefined);
+	const quantityStats = [inputPart, outputPart, hitPart, costPart].filter((part): part is string => part !== undefined);
+	const compactQuantity = [inputPart, outputPart, costPart].filter((part): part is string => part !== undefined);
 	// Token speed now leads the model line on the left, so the right side is
-	// input/cache, output, and cache-hit statistics, closed by the context/window
-	// segment behind a "·" separator.
+	// input/cache, output, cache-hit and cost statistics, closed by the
+	// context/window segment behind a "·" separator.
 	const fullSessionParts =
 		quantityStats.length > 0
 			? windowPart

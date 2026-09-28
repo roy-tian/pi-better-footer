@@ -24,6 +24,7 @@
   },
   "files": [
     "extensions",
+    "assets",
     "README.md",
     "README_zh.md"
   ],

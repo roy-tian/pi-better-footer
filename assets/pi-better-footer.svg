@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1161" height="125" viewBox="0 0 1161 125">
+  <defs>
+    <style>
+      @font-face { font-family: "JBM"; src: url(data:font/woff2;base64,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) format("woff2"); }
+      text { font-family: "JBM", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 16.667px; white-space: pre; }
+    </style>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#45474d"/>
+      <stop offset="0.25" stop-color="#4a4442"/>
+      <stop offset="0.5" stop-color="#47403e"/>
+      <stop offset="0.75" stop-color="#434245"/>
+      <stop offset="1" stop-color="#46403d"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1161" height="125" fill="url(#bg)"/>
+
+  <!-- top-right: cwd · branch · diff -->
+  <g>
+    <text x="726" y="21.5" fill="#767676">~/code/pi-better-footer</text>
+    <text x="986" y="21.5" fill="#5f8787">master</text>
+    <text x="1056" y="21.5" fill="#767676">·</text>
+    <text x="1076" y="21.5" fill="#5f875f">+119</text>
+    <text x="1126" y="21.5" fill="#af5f5f">-30</text>
+    <g fill="none" stroke="#5f8787" stroke-width="2.6" stroke-linecap="butt" stroke-linejoin="round">
+      <path d="M968.5 6V15.5"/>
+      <path d="M968.5 27V19.5L973.5 15.5V11"/>
+    </g>
+    <circle cx="973.5" cy="10.6" r="1.9" fill="#5f8787"/>
+  </g>
+
+  <!-- editor top border with Working label -->
+  <rect x="6" y="38" width="20" height="2" fill="#af005f"/>
+  <g fill="#af005f">
+    <circle cx="40" cy="33.6" r="1.9" opacity="1"><animate attributeName="opacity" values="1;1;1;1;1;1;0;0;0;0" dur="0.8s" calcMode="discrete" repeatCount="indefinite"/></circle>
+    <circle cx="40" cy="38.1" r="1.9" opacity="1"><animate attributeName="opacity" values="1;1;1;1;0;0;0;0;0;1" dur="0.8s" calcMode="discrete" repeatCount="indefinite"/></circle>
+    <circle cx="40" cy="42.6" r="1.9" opacity="1"><animate attributeName="opacity" values="1;1;1;0;0;0;0;1;1;1" dur="0.8s" calcMode="discrete" repeatCount="indefinite"/></circle>
+    <circle cx="44.9" cy="33.6" r="1.9" opacity="0"><animate attributeName="opacity" values="0;0;1;1;1;1;1;1;0;0" dur="0.8s" calcMode="discrete" repeatCount="indefinite"/></circle>
+    <circle cx="44.9" cy="38.1" r="1.9" opacity="0"><animate attributeName="opacity" values="0;0;0;0;1;1;1;1;1;0" dur="0.8s" calcMode="discrete" repeatCount="indefinite"/></circle>
+    <circle cx="44.9" cy="42.6" r="1.9" opacity="1"><animate attributeName="opacity" values="1;0;0;0;0;1;1;1;1;1" dur="0.8s" calcMode="discrete" repeatCount="indefinite"/></circle>
+  </g>
+  <text x="56" y="44.5" fill="#af005f">Working</text>
+  <rect x="136" y="38" width="1020" height="2" fill="#af005f"/>
+
+  <!-- cursor -->
+  <rect x="6" y="50" width="10" height="23" fill="#dcdfe4"/>
+
+  <!-- editor bottom border -->
+  <rect x="6" y="84" width="1150" height="2" fill="#af005f"/>
+
+  <!-- footer -->
+  <g>
+    <text x="6" y="113.5" fill="#5f8787">zai-coding-cn</text>
+    <text x="136" y="113.5" fill="#dcdfe4">/</text>
+    <text x="146" y="113.5" fill="#767676">glm-5.3</text>
+    <text x="226" y="113.5" fill="#5f8787">max</text>
+    <text x="266" y="113.5" fill="#767676">·</text>
+    <text x="286" y="113.5" fill="#5f8787">1h</text>
+    <text x="316" y="113.5" fill="#6c6c6c">98%</text>
+    <text x="356" y="113.5" fill="#767676">·</text>
+    <text x="376" y="113.5" fill="#5f8787">3d</text>
+    <text x="406" y="113.5" fill="#6c6c6c">99%</text>
+    <text x="446" y="113.5" fill="#767676">·</text>
+    <path fill="#5f8787" transform="translate(471.5 107.5) scale(0.005859 -0.005859) translate(-1024 -614)" d="M1469 680Q1393 666 1317.5 689.5Q1242 713 1185 770L1050 906Q1010 945 988.0 997.5Q966 1050 966 1106V1150L683 1304Q652 1322 653 1356Q655 1391 687 1406L855 1480Q952 1524 1063 1524H1128Q1227 1524 1317.0 1488.5Q1407 1453 1478 1386L1637 1236Q1701 1176 1725.0 1094.0Q1749 1012 1731 930L1787 874L1816 902Q1842 927 1876.5 927.0Q1911 927 1936 902L2022 818Q2048 792 2048.0 756.0Q2048 720 2022 696L1709 384Q1684 358 1648.5 358.0Q1613 358 1588 384L1503 468Q1478 494 1478.0 529.0Q1478 564 1503 588L1531 618ZM97 184 927 874Q953 841 969 824L1105 690Q1139 656 1172 634L479 -198Q440 -245 385.5 -270.5Q331 -296 271 -296Q159 -296 79.5 -216.0Q0 -136 0 -24Q0 36 25.5 90.5Q51 145 97 184Z"/>
+    <text x="486" y="113.5" fill="#6c6c6c">97%</text>
+    <text x="526" y="113.5" fill="#767676">·</text>
+    <text x="546" y="113.5" fill="#5f8787">97</text>
+    <text x="566" y="113.5" fill="#767676">t/s</text>
+    <text x="756" y="113.5" fill="#5f8787">↑</text>
+    <text x="766" y="113.5" fill="#6c6c6c">95k</text>
+    <text x="796" y="113.5" fill="#dcdfe4">/</text>
+    <text x="806" y="113.5" fill="#9e9e9e">3.3M</text>
+    <text x="856" y="113.5" fill="#5f8787">↓</text>
+    <text x="866" y="113.5" fill="#6c6c6c">29k</text>
+    <text x="906" y="113.5" fill="#5f8787">CH</text>
+    <text x="926" y="113.5" fill="#6c6c6c">99.7%</text>
+    <text x="986" y="113.5" fill="#5f8787">$</text>
+    <text x="996" y="113.5" fill="#6c6c6c">0.153</text>
+    <text x="1056" y="113.5" fill="#767676">·</text>
+    <text x="1076" y="113.5" fill="#5f8787">73k</text>
+    <text x="1106" y="113.5" fill="#dcdfe4">/</text>
+    <text x="1116" y="113.5" fill="#767676">1.0M</text>
+  </g>
+</svg>

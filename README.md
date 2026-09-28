@@ -4,16 +4,13 @@
 
 A compact, live status line for [Pi](https://pi.dev/). See your current model, available provider quota, session usage, and Git changes at a glance—without losing your model and thinking level when starting fresh.
 
-```text
-                                      ~/project  main · +12 -3
-openai-codex/model high · 5h 72% · 1d 48% · 36t/s    ↑62k/1.2M ↓8k CH75.0% · 66k/1.0M
-```
+![pi-better-footer demo](assets/pi-better-footer.svg)
 
 *Illustrative output; available fields depend on your provider, session, and terminal width.*
 
 ## Why use it?
 
-- **A clean footer with quota visibility.** One line shows the active provider/model, thinking level, remaining quota and time until reset (when available), output speed, session tokens, cache hit rate, and context usage. OpenAI Codex, Z.AI / GLM, OpenCode Go, and GitHub Copilot have dedicated quota sources; other providers can expose rate limits through response headers. Only the active provider's quota appears in the footer.
+- **A clean footer with quota visibility.** One line shows the active provider/model, thinking level, remaining quota and time until reset (when available), output speed, session tokens, cache hit rate, session cost, and context usage. OpenAI Codex, Z.AI / GLM, OpenCode Go, and GitHub Copilot have dedicated quota sources; other providers can expose rate limits through response headers. Only the active provider's quota appears in the footer.
 - **Git status where you work.** A right-aligned line above the editor shows the working directory, branch, and added/removed line counts, including untracked files. Counts are re-read whenever the tree may have changed (tool runs, submitted prompts, branch switches, `!` shell commands) — not on a fixed timer.
 - **Keep your workflow across sessions.** Remember the last model and thinking level per working directory for new sessions and fresh Pi starts, without changing Pi's saved defaults. When cycling scoped models with `Ctrl+P` (or your configured cycle keys), skip providers **known** to have exhausted quota. Both behaviors are on by default and can be turned off independently. Unknown quota is never treated as exhausted.
 
@@ -60,7 +57,7 @@ Settings live in `better-footer.json` under Pi's agent directory (normally `~/.p
 | Provider | Source |
 | --- | --- |
 | OpenAI Codex | Authenticated Codex app-server rate limits, supplemented by response headers where available; requires the `codex` CLI. |
-| Z.AI / GLM | Account quota endpoint using the key configured in Pi; 429-error fallback. |
+| Z.AI / GLM | Account quota endpoint using the key configured in Pi; 429-error fallback. The monthly tool-invocation quota is marked with a hammer icon ([Nerd Font](https://www.nerdfonts.com/)). |
 | OpenCode Go | Usage API using `OPENCODE_GO_API_KEY`, the key configured in Pi, or OpenCode CLI credentials; optional dashboard-cookie fallback. |
 | GitHub Copilot | Premium credits from Pi's authentication record. |
 | Other providers | Rate-limit response headers, when available (not necessarily subscription balances). |

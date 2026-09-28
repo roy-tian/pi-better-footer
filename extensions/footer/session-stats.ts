@@ -3,9 +3,16 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 type SessionManager = ExtensionContext["sessionManager"];
 type SessionEntry = ReturnType<SessionManager["getEntries"]>[number];
 
-type Usage = { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+type Usage = {
+	input?: number;
+	output?: number;
+	cacheRead?: number;
+	cacheWrite?: number;
+	/** Per-request cost breakdown; only `total` is needed here. */
+	cost?: { total?: number };
+};
 export interface SessionStats {
-	totals: { input: number; output: number; cacheRead: number; cacheWrite: number };
+	totals: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
 	latestHit?: number;
 }
 
@@ -18,14 +25,14 @@ const cache = new WeakMap<SessionManager, CachedStats>();
 
 /** Session file entries are append-only until the active session is replaced. */
 export function summarizeSessionUsage(manager: SessionManager | undefined): SessionStats {
-	if (!manager) return { totals: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+	if (!manager) return { totals: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 } };
 	const entries = manager.getEntries();
 	const previous = cache.get(manager);
 	const resume =
 		previous !== undefined &&
 		entries.length >= previous.count &&
 		(previous.count === 0 || entries[previous.count - 1] === previous.lastEntry);
-	const totals = resume ? { ...previous.totals } : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+	const totals = resume ? { ...previous.totals } : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
 	let latestHit = resume ? previous.latestHit : undefined;
 
 	for (let index = resume ? previous.count : 0; index < entries.length; index++) {
@@ -52,6 +59,7 @@ export function summarizeSessionUsage(manager: SessionManager | undefined): Sess
 		totals.output += usage.output ?? 0;
 		totals.cacheRead += usage.cacheRead ?? 0;
 		totals.cacheWrite += usage.cacheWrite ?? 0;
+		totals.cost += usage.cost?.total ?? 0;
 	}
 
 	cache.set(manager, { totals, latestHit, count: entries.length, lastEntry: entries.at(-1) });
