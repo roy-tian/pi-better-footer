@@ -366,8 +366,12 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("after_provider_response", (event) => {
 		// Headers from a request sent before a model switch describe the previous
-		// provider; never credit them to the newly selected one.
-		if (requestProvider !== undefined && requestProvider !== H.state.currentModelProvider) return;
+		// provider; never credit them to the newly selected one. The note is consumed
+		// here so a later response can never be matched against a request that already
+		// answered (interleaved main and side calls would otherwise misattribute).
+		const respondingProvider = requestProvider;
+		requestProvider = undefined;
+		if (respondingProvider !== undefined && respondingProvider !== H.state.currentModelProvider) return;
 		// Derive rate-limit windows from response headers.
 		const raw = detectRateWindows(event.headers);
 		const windows = toRateWindows(raw);
@@ -410,12 +414,14 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("message_update", (event) => {
 		if (event.message?.role !== "assistant") return;
-		const now = performance.now();
 		const kind = event.assistantMessageEvent?.type;
-		if (kind?.endsWith("_delta")) {
-			H.state.streamFirstDelta ??= now;
-			if (kind !== "thinking_delta") H.state.streamFirstAnswerDelta ??= now;
-		}
+		// Only deltas are model output. Block-end, done and abort events can land
+		// well after the last token — an aborted reply would otherwise count its
+		// idle stall as generation time and understate t/s.
+		if (!kind?.endsWith("_delta")) return;
+		const now = performance.now();
+		H.state.streamFirstDelta ??= now;
+		if (kind !== "thinking_delta") H.state.streamFirstAnswerDelta ??= now;
 		H.state.streamLastModelUpdate = now;
 	});
 

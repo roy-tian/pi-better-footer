@@ -428,8 +428,22 @@ test("token speed starts at the first streamed token and leaves out hidden reaso
 		),
 		50,
 	);
+	// An aborted reply's error event lands when the user presses Esc, well after
+	// the last token; the stall before the abort is not generation time.
+	h.clock.now = 30_000;
+	assert.equal(
+		await stream(
+			[
+				[31_000, "text_delta"],
+				[32_000, "text_delta"],
+				[36_000, "error"],
+			],
+			{ output: 100 },
+		),
+		100,
+	);
 	// A reply with no measurable stream keeps the previous reading.
-	assert.equal(await stream([], { output: 10 }), 50);
+	assert.equal(await stream([], { output: 10 }), 100);
 	await h.emit("session_shutdown", {}, ctx);
 });
 
