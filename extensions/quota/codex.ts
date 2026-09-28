@@ -29,6 +29,7 @@ export function readCodexRateLimits(): Promise<RateWindow[]> {
 		let settled = false;
 		let buffer = "";
 		let timeout: ReturnType<typeof setTimeout> | undefined;
+		let killTimeout: ReturnType<typeof setTimeout> | undefined;
 
 		const finish = (windows: RateWindow[]) => {
 			if (settled) return;
@@ -44,6 +45,17 @@ export function readCodexRateLimits(): Promise<RateWindow[]> {
 			} catch {
 				/* ignore */
 			}
+			// A codex that ignores (or races) SIGTERM must not outlive its reader —
+			// the polling loop would leak one process per round. Unref'ed so the
+			// timer itself can never hold Pi open.
+			killTimeout = setTimeout(() => {
+				try {
+					child.kill("SIGKILL");
+				} catch {
+					/* ignore */
+				}
+			}, 2000);
+			killTimeout.unref();
 			resolve(windows);
 		};
 
@@ -92,7 +104,10 @@ export function readCodexRateLimits(): Promise<RateWindow[]> {
 		};
 
 		child.on("error", () => finish([]));
-		child.on("close", () => finish([]));
+		child.on("close", () => {
+			if (killTimeout) clearTimeout(killTimeout);
+			finish([]);
+		});
 		// A codex that exits before reading stdin (e.g. an older CLI rejecting the
 		// arguments) makes the writes below fail with EPIPE; unhandled, that error
 		// would reach Pi's uncaughtException handler and exit Pi.
