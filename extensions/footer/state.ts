@@ -5,6 +5,8 @@ export interface FooterState {
 	currentModelProvider: string | undefined;
 	currentModelId: string | undefined;
 	currentModelReasoning: boolean;
+	/** Account the selected model's quota belongs to (see quotaKey); undefined for a virtual model. */
+	currentQuotaKey: string | undefined;
 	thinkingLevel: string;
 	rateWindows: RateWindow[];
 	providerQuotas: Map<string, ProviderQuotaSnapshot>;
@@ -32,6 +34,7 @@ export function createState(): FooterState {
 		currentModelProvider: undefined,
 		currentModelId: undefined,
 		currentModelReasoning: false,
+		currentQuotaKey: undefined,
 		thinkingLevel: "off",
 		rateWindows: [],
 		providerQuotas,

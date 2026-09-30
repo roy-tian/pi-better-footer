@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import registerFooter from "./footer/index";
+import { trackChatGPTLimits } from "./quota/provider-quota";
 import registerRecentModel from "./recent-model";
 import registerSkipUnavailable from "./skip-unavailable";
 import { loadSettings, saveSettings } from "./settings";
@@ -7,6 +8,8 @@ import { loadSettings, saveSettings } from "./settings";
 export default function betterFooter(pi: ExtensionAPI) {
 	let settings = loadSettings();
 
+	// Before the footer, whose message_end render then already shows a new limit.
+	trackChatGPTLimits(pi);
 	registerFooter(pi);
 	registerRecentModel(pi, { enabled: () => settings.keepRecentModel });
 	registerSkipUnavailable(pi, { enabled: () => settings.skipExhaustedScopedModels });

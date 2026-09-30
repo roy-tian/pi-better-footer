@@ -28,8 +28,14 @@ test("one entry registers all features; settings toggle independently and persis
 	let stored = { keepRecentModel: true, skipExhaustedScopedModels: true };
 	const registered = [];
 	const commands = new Map();
+	let tracked = 0;
 	const module = await load("../extensions/index.ts", {
 		"./footer/index": { default: () => registered.push("footer") },
+		"./quota/provider-quota": {
+			trackChatGPTLimits: () => {
+				tracked++;
+			},
+		},
 		"./recent-model": { default: (_pi, options) => registered.push(["recent", options]) },
 		"./skip-unavailable": { default: (_pi, options) => registered.push(["skip", options]) },
 		"./settings": {
@@ -43,6 +49,7 @@ test("one entry registers all features; settings toggle independently and persis
 	assert.equal(registered[0], "footer");
 	assert.equal(registered[1][0], "recent");
 	assert.equal(registered[2][0], "skip");
+	assert.equal(tracked, 1);
 	assert.equal(commands.size, 1);
 	const recent = registered[1][1].enabled;
 	const skip = registered[2][1].enabled;
@@ -64,6 +71,7 @@ test("the settings menu builds on changes another Pi process saved", async () =>
 	let command;
 	const module = await load("../extensions/index.ts", {
 		"./footer/index": { default() {} },
+		"./quota/provider-quota": { trackChatGPTLimits() {} },
 		"./recent-model": {
 			default: (_pi, options) => {
 				recent = options.enabled;
@@ -109,6 +117,7 @@ test("a failed settings save leaves both toggles unchanged", async () => {
 	const calls = [];
 	const module = await load("../extensions/index.ts", {
 		"./footer/index": { default() {} },
+		"./quota/provider-quota": { trackChatGPTLimits() {} },
 		"./recent-model": { default: (_pi, options) => calls.push(options.enabled) },
 		"./skip-unavailable": { default: (_pi, options) => calls.push(options.enabled) },
 		"./settings": {

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+	CHATGPT_QUOTA_KEY,
 	detectRateWindows,
 	toRateWindows,
 	parseLimitError,
@@ -14,6 +15,9 @@ import {
 } from "../extensions/quota/quotas.ts";
 import { summarizeSessionUsage } from "../extensions/footer/session-stats.ts";
 import { readGitChanges } from "../extensions/footer/git.ts";
+import { createState } from "../extensions/footer/state.ts";
+import { renderFooter } from "../extensions/footer/render.ts";
+import { visibleWidth } from "@earendil-works/pi-tui";
 
 const at = Date.now();
 
@@ -274,4 +278,19 @@ test("session stats reuse append-only history, but reset after replacement", () 
 	entries.splice(0, entries.length, { type: "message", message: { role: "assistant", usage: { input: 10 } } });
 	assert.equal(summarizeSessionUsage(manager).totals.input, 10);
 	assert.equal(summarizeSessionUsage(manager).latestHit, 0);
+});
+
+test("ChatGPT usage hyperlinks fit real terminal widths and close before other footer segments", () => {
+	const state = createState();
+	state.currentModelProvider = "openai";
+	state.currentModelId = "test-model";
+	state.currentQuotaKey = CHATGPT_QUOTA_KEY;
+	state.providerQuotas = new Map();
+	const holder = { state, ctx: undefined };
+	for (const width of [1, 8, 18, 32, 80]) {
+		const [line] = renderFooter(holder, width);
+		assert.ok(visibleWidth(line) <= width, `${width}: ${JSON.stringify(line)}`);
+	}
+	const [line] = renderFooter(holder, 80);
+	assert.ok(line.includes("\x1b]8;;https://chatgpt.com/settings/usage\x1b\\ChatGPT\x1b]8;;\x1b\\"));
 });

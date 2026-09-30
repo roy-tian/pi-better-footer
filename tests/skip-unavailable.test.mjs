@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
 import { test } from "node:test";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
+import { CHATGPT_QUOTA_KEY, hasRecentChatGPTLimit, quotaKey } from "../extensions/quota/openai.ts";
 
 const source = stripTypeScriptTypes(
 	await readFile(new URL("../extensions/skip-unavailable.ts", import.meta.url), "utf8"),
@@ -26,11 +27,13 @@ async function harness(
 	const selected = [];
 	const notices = [];
 	let terminalInput;
-	let current = models[0].model;
+	const cycleModels = extra.models ?? models;
+	let current = cycleModels[0].model;
 	let level = "low";
 	const ctx = {
 		mode: "tui",
-		scopedModels: models,
+		scopedModels: cycleModels,
+		modelRegistry: { isUsingOAuth: () => extra.oauth ?? false },
 		cwd: "/test",
 		isProjectTrusted: () => true,
 		get model() {
@@ -62,8 +65,10 @@ async function harness(
 		"./quota/provider-quota": {
 			readProviderQuota: (provider) => readQuota(provider),
 			isQuotaExhausted: (snapshot) =>
-				snapshot?.windows.some((w) => w.percent <= 0 && (!w.hasReset || w.resetSec > 0)) ?? false,
+				hasRecentChatGPTLimit(snapshot?.chatgptLimitAt) ||
+				(snapshot?.windows.some((w) => w.percent <= 0 && (!w.hasReset || w.resetSec > 0)) ?? false),
 		},
+		"./quota/quotas": { quotaKey },
 	};
 	await module.link(async (specifier) => {
 		const exports = dependencies[specifier];
@@ -111,10 +116,10 @@ async function harness(
 		start: () => handlers.get("session_start")({}, ctx),
 		stop: () => handlers.get("session_shutdown")(),
 		input: (action) => terminalInput?.(action),
-		select: (index, previous = models[0].model) => {
-			current = models[index].model;
+		select: (index, previous = cycleModels[0].model) => {
+			current = cycleModels[index].model;
 			return handlers.get("model_select")(
-				{ source: "cycle", model: models[index].model, previousModel: previous },
+				{ source: "cycle", model: cycleModels[index].model, previousModel: previous },
 				ctx,
 			);
 		},
@@ -364,3 +369,59 @@ test("a session change drops a pending skip check", async () => {
 	assert.deepEqual(h.selected, []);
 	assert.deepEqual(h.notices, []);
 });
+
+test("cycling directly onto a virtual model does not query or reject its namesake provider", async () => {
+	const cycleModels = [models[0], { model: { provider: "openai-codex", id: "auto", api: "pi-virtual" } }, models[1]];
+	let reads = 0;
+	const h = await harness(
+		undefined,
+		async () => {
+			reads++;
+			return { windows: [window(0)] };
+		},
+		undefined,
+		{ models: cycleModels },
+	);
+	h.start();
+	h.select(1);
+	await settle();
+	assert.equal(reads, 0);
+	assert.deepEqual(h.selected, []);
+	assert.equal(h.ctx.model, cycleModels[1].model);
+	h.stop();
+});
+
+test("a skip can land on a virtual model even when its namesake physical provider is exhausted", async () => {
+	const virtual = { provider: "openai-codex", id: "auto", api: "pi-virtual" };
+	const cycleModels = [models[0], { model: virtual, thinkingLevel: "high" }, models[1]];
+	const h = await harness(new Map([["openai-codex", { windows: [window(0)] }]]), undefined, undefined, {
+		models: cycleModels,
+	});
+	h.start();
+	h.input("app.model.cycleForward");
+	h.select(0, cycleModels[2].model);
+	await settle();
+	assert.deepEqual(h.selected, [virtual, "high"]);
+	h.stop();
+});
+
+const chatgptLimit = (at = Date.now()) => [CHATGPT_QUOTA_KEY, { windows: [], chatgptLimitAt: at }];
+for (const [name, oauth, cached, shouldSkip, baseUrl = "https://api.openai.com/v1"] of [
+	["fresh ChatGPT app restriction", true, chatgptLimit(), true],
+	["expired ChatGPT app restriction", true, chatgptLimit(Date.now() - 5 * 60_000), false],
+	["API-key model with cached OAuth restriction", false, chatgptLimit(), false],
+	["ordinary API-key token limit", false, ["openai", { windows: [window(0)] }], true],
+	["ChatGPT model with cached API-key token limit", true, ["openai", { windows: [window(0)] }], false],
+	["proxy model with cached OAuth restriction", true, chatgptLimit(), false, "https://proxy.example/v1"],
+]) {
+	test(`OpenAI cycling separates billing paths: ${name}`, async () => {
+		const openai = { provider: "openai", id: "test", api: "openai-responses", baseUrl };
+		const cycleModels = [models[0], { model: openai }, models[2]];
+		const h = await harness(new Map([cached]), undefined, undefined, { models: cycleModels, oauth });
+		h.start();
+		h.select(1);
+		await settle();
+		assert.deepEqual(h.selected, shouldSkip ? [models[2].model, "medium"] : []);
+		h.stop();
+	});
+}

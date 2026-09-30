@@ -56,13 +56,18 @@ Settings live in `better-footer.json` under Pi's agent directory (normally `~/.p
 
 | Provider | Source |
 | --- | --- |
-| OpenAI Codex | Authenticated Codex app-server rate limits, supplemented by response headers where available; requires the `codex` CLI. |
+| OpenAI Codex (legacy) | Authenticated Codex app-server rate limits, supplemented by response headers where available; requires the `codex` CLI. |
+| OpenAI — Sign in with ChatGPT (Pi 0.99+) | Official Responses API `subscription_sharing_usage_limit_exceeded` errors. The footer links to ChatGPT's usage page; no balance polling, guessed percentage/reset time, or Codex CLI account reuse. |
 | Z.AI / GLM | Account quota endpoint using the key configured in Pi; 429-error fallback. The monthly tool-invocation quota is marked with a hammer icon ([Nerd Font](https://www.nerdfonts.com/)). |
 | OpenCode Go | Usage API using `OPENCODE_GO_API_KEY`, the key configured in Pi, or OpenCode CLI credentials; optional dashboard-cookie fallback. |
 | GitHub Copilot | Premium credits from Pi's authentication record. |
 | Other providers | Rate-limit response headers, when available (not necessarily subscription balances). |
 
 Quota reads are best-effort: some sources are polled while the current provider is active, and others update only after a provider response. Missing, failed, or stale readings do **not** mean a provider is unusable. The extension uses your existing local credentials; credentials are not committed to this repository. Optional OpenCode Go configuration details are in [`extensions/quota/opencode-go.ts`](extensions/quota/opencode-go.ts).
+
+For **Sign in with ChatGPT**, the footer shows a clickable `ChatGPT` label (on terminals that support hyperlinks), changing to `ChatGPT limit` after an explicit app-limit denial. A denial can be app-specific, so it does not imply the whole plan is empty. Cycling treats it as a restriction for at most five minutes, or until a successful response clears it; this freshness limit is **not** a predicted quota reset. API-key billing and ordinary token-rate limits stay separate. See [OpenAI's documented recovery rules](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery).
+
+**Virtual models** are not skipped based on their selection provider's quota: they may route to a different provider. The footer does not poll or attribute response-header quota to a virtual selection. Pi 0.99's `system` theme follows the reported `theme.appearance`, with a name/environment fallback on older Pi versions.
 
 ## Development
 

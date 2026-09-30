@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext, ModelSelectEvent } from "@earendil
 import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getKeybindings } from "@earendil-works/pi-tui";
 import { isQuotaExhausted, readProviderQuota } from "./quota/provider-quota";
+import { quotaKey } from "./quota/quotas";
 
 type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
 type ModelRef = { provider: string; id: string } | undefined;
@@ -87,29 +88,34 @@ export default function (pi: ExtensionAPI, options: { enabled: () => boolean } =
 		let startIndex = models.findIndex((item) => sameModel(item.model, event.model));
 		if (startIndex < 0) startIndex = 0;
 
-		const quotaByProvider = new Map<string, Promise<Awaited<ReturnType<typeof readProviderQuota>>>>();
-		// Start every scoped provider's read at once so their timeouts overlap;
+		const quotaByKey = new Map<string, Promise<Awaited<ReturnType<typeof readProviderQuota>>>>();
+		// Start every scoped account's read at once so their timeouts overlap;
 		// stacked sequential reads could delay the correction long past the Ctrl+P
-		// that started it. Reads are cached and coalesced per provider, so cycling
+		// that started it. Reads are cached and coalesced per account, so cycling
 		// repeatedly does not multiply them. readProviderQuota never rejects; the
 		// catch keeps a prefetch abandoned by an early return non-fatal.
-		const prefetch = (provider: string) => {
-			let read = quotaByProvider.get(provider);
+		const prefetch = (key: string) => {
+			let read = quotaByKey.get(key);
 			if (!read) {
-				read = readProviderQuota(provider, ctx);
+				read = readProviderQuota(key, ctx);
 				void read.catch(() => undefined);
-				quotaByProvider.set(provider, read);
+				quotaByKey.set(key, read);
 			}
 			return read;
 		};
-		for (const item of models) void prefetch(item.model.provider);
+		for (const item of models) {
+			const key = quotaKey(item.model, ctx.modelRegistry);
+			if (key) void prefetch(key);
+		}
 
 		const skipped: string[] = [];
 		for (let step = 0; step < models.length; step++) {
 			const item = models[(startIndex + step * direction + models.length * 2) % models.length];
 			const provider = item.model.provider;
 			// The reads above all started together; each await normally settles at once.
-			const snapshot = await prefetch(provider);
+			// A virtual model can route elsewhere, so it has no quota to check.
+			const key = quotaKey(item.model, ctx.modelRegistry);
+			const snapshot = key === undefined ? undefined : await prefetch(key);
 			if (superseded()) return;
 			if (isQuotaExhausted(snapshot)) {
 				skipped.push(`${provider}/${item.model.id} (quota exhausted)`);
@@ -170,7 +176,13 @@ export default function (pi: ExtensionAPI, options: { enabled: () => boolean } =
 	};
 
 	pi.on("model_select", (event, ctx) => {
-		if (!options.enabled() || event.source !== "cycle" || ctx.mode !== "tui" || ctx.scopedModels.length < 2) {
+		if (
+			!options.enabled() ||
+			event.source !== "cycle" ||
+			ctx.mode !== "tui" ||
+			event.model.api === "pi-virtual" ||
+			ctx.scopedModels.length < 2
+		) {
 			pendingCycle = undefined;
 			return;
 		}

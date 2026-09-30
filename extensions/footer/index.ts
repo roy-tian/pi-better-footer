@@ -46,6 +46,8 @@ import {
 	parseCodexUsageHeaders,
 	isZaiProvider,
 	isOpenCodeGoProvider,
+	CHATGPT_QUOTA_KEY,
+	quotaKey,
 	type RateWindow,
 } from "../quota/quotas";
 import { createState, type FooterState } from "./state";
@@ -128,6 +130,7 @@ export default function (pi: ExtensionAPI) {
 		H.state.currentModelProvider = ctx.model?.provider;
 		H.state.currentModelId = ctx.model?.id;
 		H.state.currentModelReasoning = !!ctx.model?.reasoning;
+		H.state.currentQuotaKey = quotaKey(ctx.model, ctx.modelRegistry);
 		try {
 			H.state.thinkingLevel = pi.getThinkingLevel() ?? "off";
 		} catch {
@@ -135,18 +138,28 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
+	/** Follow the selection to another quota account, showing what is cached for it. */
+	const selectQuotaKey = (key: string | undefined) => {
+		if (key === H.state.currentQuotaKey) return;
+		const cached = key === undefined ? undefined : H.state.providerQuotas.get(key);
+		H.state.rateWindows = cached?.windows ? [...cached.windows] : [];
+		H.state.copilotCredits = cached?.copilotCredits;
+		H.state.currentQuotaKey = key;
+	};
+
 	const upsertRateWindow = (window: RateWindow) => {
 		const index = H.state.rateWindows.findIndex((item) => item.scope === window.scope);
 		if (index >= 0) H.state.rateWindows[index] = window;
 		else H.state.rateWindows.push(window);
 		H.state.rateWindows.sort(compareRateWindows);
-		const provider = H.state.currentModelProvider;
-		if (provider) rememberProviderQuota(provider, { windows: [...H.state.rateWindows] });
+		const key = H.state.currentQuotaKey;
+		if (key) rememberProviderQuota(key, { windows: [...H.state.rateWindows] });
 	};
 
 	const seedRateWindowsFromSession = () => {
 		const ctx = H.ctx;
-		if (!ctx || !isZaiProvider(H.state.currentModelProvider)) return;
+		const key = H.state.currentQuotaKey;
+		if (!ctx || !isZaiProvider(key)) return;
 		for (const entry of ctx.sessionManager.getEntries()) {
 			const message = (
 				entry as {
@@ -156,7 +169,7 @@ export default function (pi: ExtensionAPI) {
 			).message;
 			if (message?.role !== "assistant" || !message.errorMessage) continue;
 			// Another ZAI provider's limit (a separate account) says nothing about this one.
-			if (message.provider !== H.state.currentModelProvider) continue;
+			if (message.provider !== key) continue;
 			const window = parseLimitError(message.errorMessage);
 			if (window) upsertRateWindow(window);
 		}
@@ -174,30 +187,30 @@ export default function (pi: ExtensionAPI) {
 	 * startup measures <0.5s, so a 60s cadence is cheap while Pi is in use;
 	 * idle sessions back off (IDLE_POLL_BACKOFF).
 	 */
-	const quotaPollInterval = (provider: string | undefined): number | undefined => {
+	const quotaPollInterval = (key: string | undefined): number | undefined => {
 		let base: number;
-		if (provider === COPILOT_PROVIDER) base = COPILOT_CREDITS_REFRESH_MS;
-		else if (provider === "openai-codex" || isZaiProvider(provider) || isOpenCodeGoProvider(provider)) base = 60_000;
+		if (key === COPILOT_PROVIDER) base = COPILOT_CREDITS_REFRESH_MS;
+		else if (key === "openai-codex" || isZaiProvider(key) || isOpenCodeGoProvider(key)) base = 60_000;
 		else return undefined;
 		const idle = Date.now() - H.lastActivityAt;
 		const backoff = IDLE_POLL_BACKOFF.find((step) => idle >= step.idleMs);
 		return backoff ? Math.max(base, backoff.intervalMs) : base;
 	};
 
-	/** Refresh the current provider's quota; force=true skips the poll interval. */
+	/** Refresh the current account's quota; force=true skips the poll interval. */
 	const refreshQuota = async (force = false) => {
 		const ctx = H.ctx;
 		const state = H.state;
-		const provider = state.currentModelProvider;
-		const interval = quotaPollInterval(provider);
+		const key = state.currentQuotaKey;
+		const interval = quotaPollInterval(key);
 		// Poll only while the footer is mounted (TUI, between session_start and
 		// session_shutdown): print/json/rpc runs never show the result, and a pending
 		// read would keep `pi -p` alive until it settles.
-		if (!H.timer || !ctx || !provider || interval === undefined) return;
-		let poll = state.quotaPolls.get(provider);
+		if (!H.timer || !ctx || !key || interval === undefined) return;
+		let poll = state.quotaPolls.get(key);
 		if (!poll) {
 			poll = { lastFetch: 0, inFlight: false };
-			state.quotaPolls.set(provider, poll);
+			state.quotaPolls.set(key, poll);
 		}
 		if (poll.inFlight) return;
 		const now = Date.now();
@@ -206,10 +219,10 @@ export default function (pi: ExtensionAPI) {
 		poll.inFlight = true;
 		poll.lastFetch = now;
 		try {
-			const snapshot = await readProviderQuota(provider, ctx, force, POLL_MAX_AGE_MS);
-			// Drop responses for a replaced session or a provider the user has left.
-			if (H.state !== state || state.currentModelProvider !== provider || !snapshot) return;
-			if (provider === COPILOT_PROVIDER) {
+			const snapshot = await readProviderQuota(key, ctx, force, POLL_MAX_AGE_MS);
+			// Drop responses for a replaced session or an account the user has left.
+			if (H.state !== state || state.currentQuotaKey !== key || !snapshot) return;
+			if (key === COPILOT_PROVIDER) {
 				if (snapshot.copilotCredits) state.copilotCredits = snapshot.copilotCredits;
 			} else if (snapshot.windows.length) {
 				state.rateWindows = [...snapshot.windows];
@@ -300,7 +313,11 @@ export default function (pi: ExtensionAPI) {
 		// re-read git only after the session gained an entry (a `!` command's
 		// result has no event of its own).
 		H.timer = setInterval(() => {
-			if (H.ctx && H.ctx.sessionManager.getLeafId() !== H.state.gitCheckedLeafId) void refreshGit();
+			const ctx = H.ctx;
+			// /login and /logout can move the model to another billing account
+			// without a model_select.
+			if (ctx) selectQuotaKey(quotaKey(ctx.model, ctx.modelRegistry));
+			if (ctx && ctx.sessionManager.getLeafId() !== H.state.gitCheckedLeafId) void refreshGit();
 			void refreshQuota();
 			requestRender();
 		}, 5000);
@@ -336,11 +353,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("model_select", async (event, ctx) => {
 		markActive();
 		const providerChanged = H.state.currentModelProvider !== event.model.provider;
-		if (providerChanged) {
-			const cached = H.state.providerQuotas.get(event.model.provider);
-			H.state.rateWindows = cached?.windows ? [...cached.windows] : [];
-			H.state.copilotCredits = cached?.copilotCredits;
-		}
+		selectQuotaKey(quotaKey(event.model, ctx.modelRegistry));
 		H.state.currentModelProvider = event.model.provider;
 		H.state.currentModelId = event.model.id;
 		H.state.currentModelReasoning = !!event.model.reasoning;
@@ -360,20 +373,21 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// after_provider_response does not say which model answered, and the user can
-	// switch models while a request is in flight, so note each request's provider.
-	let requestProvider: string | undefined;
+	// switch models while a request is in flight, so note which account the latest
+	// request was sent under.
+	let request: { key: string | undefined; state: FooterState } | undefined;
 	pi.on("before_provider_request", (_event, ctx) => {
-		requestProvider = ctx.model?.provider;
+		request = { key: quotaKey(ctx.model, ctx.modelRegistry), state: H.state };
 	});
 
 	pi.on("after_provider_response", (event) => {
-		// Headers from a request sent before a model switch describe the previous
-		// provider; never credit them to the newly selected one. The note is consumed
-		// here so a later response can never be matched against a request that already
-		// answered (interleaved main and side calls would otherwise misattribute).
-		const respondingProvider = requestProvider;
-		requestProvider = undefined;
-		if (respondingProvider !== undefined && respondingProvider !== H.state.currentModelProvider) return;
+		// Headers from a request sent before a switch describe the previous account;
+		// never credit them to the newly selected one. The note is kept, not consumed:
+		// a cache-warming request can overlap the main one, and every request carries
+		// the selection it was sent under, so both answers belong to it. A virtual
+		// selection has no key: its headers carry no routed-model identity.
+		const key = H.state.currentQuotaKey;
+		if (!key || request?.state !== H.state || request.key !== key) return;
 		// Derive rate-limit windows from response headers.
 		const raw = detectRateWindows(event.headers);
 		const windows = toRateWindows(raw);
@@ -383,23 +397,24 @@ export default function (pi: ExtensionAPI) {
 		// process. Over the default WebSocket transport this event never fires at
 		// all, so the header merge is a no-op there and the RPC poll carries the
 		// load; it still helps for the SSE transport / SSE fallback.
-		if (H.state.currentModelProvider === "openai-codex") {
+		if (key === "openai-codex") {
 			const fromHeaders = parseCodexUsageHeaders(event.headers, event.status, H.state.rateWindows);
 			if (fromHeaders.length > 0) {
 				for (const w of fromHeaders) upsertRateWindow(w);
 			}
 		}
-		// Codex, OpenCode Go, and ZAI use authoritative account-usage sources; do
-		// not replace those windows with ordinary per-request throttling headers.
+		// Codex, OpenCode Go, and ZAI use authoritative account-usage sources, and the
+		// ChatGPT sign-in only explicit denials; do not replace those with ordinary
+		// per-request throttling headers.
 		if (
 			windows.length > 0 &&
-			H.state.currentModelProvider !== "openai-codex" &&
-			!isOpenCodeGoProvider(H.state.currentModelProvider) &&
-			!isZaiProvider(H.state.currentModelProvider)
+			key !== "openai-codex" &&
+			key !== CHATGPT_QUOTA_KEY &&
+			!isOpenCodeGoProvider(key) &&
+			!isZaiProvider(key)
 		) {
 			H.state.rateWindows = windows;
-			const provider = H.state.currentModelProvider;
-			if (provider) rememberProviderQuota(provider, { windows });
+			rememberProviderQuota(key, { windows });
 		}
 		requestRender();
 	});
@@ -440,7 +455,8 @@ export default function (pi: ExtensionAPI) {
 		// Fallback when ZAI's quota-monitor request is unavailable: its 429 body
 		// still carries the exhausted window and reset time. Only the provider that
 		// produced the error is known to be exhausted.
-		if (msg.errorMessage && msg.provider === H.state.currentModelProvider && isZaiProvider(msg.provider)) {
+		const key = H.state.currentQuotaKey;
+		if (msg.errorMessage && msg.provider === key && isZaiProvider(key)) {
 			const window = parseLimitError(msg.errorMessage);
 			if (window) upsertRateWindow(window);
 		}

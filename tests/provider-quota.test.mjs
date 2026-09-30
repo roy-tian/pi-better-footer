@@ -3,6 +3,12 @@ import { readFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
 import { test } from "node:test";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
+import {
+	CHATGPT_QUOTA_KEY,
+	hasRecentChatGPTLimit,
+	isOpenAIChatGPTLimitError,
+	quotaKey,
+} from "../extensions/quota/openai.ts";
 
 const source = stripTypeScriptTypes(
 	await readFile(new URL("../extensions/quota/provider-quota.ts", import.meta.url), "utf8"),
@@ -12,6 +18,10 @@ const window = (percent) => ({ scope: "codex:primary", percent, hasReset: false,
 async function service(readCodexRateLimits, context = createContext({ Date, console })) {
 	const module = new SourceTextModule(source, { context });
 	const quotas = {
+		CHATGPT_QUOTA_KEY,
+		hasRecentChatGPTLimit,
+		isOpenAIChatGPTLimitError,
+		quotaKey,
 		COPILOT_PROVIDER: "github-copilot",
 		isZaiProvider: () => false,
 		isOpenCodeGoProvider: () => false,
@@ -119,4 +129,76 @@ test("a zero max age refetches instead of returning the cached snapshot", async 
 	assert.equal(calls, 1);
 	await quotas.readProviderQuota("openai-codex", ctx, false, 0);
 	assert.equal(calls, 2);
+});
+
+test("OpenAI app limits are cached separately from numeric windows and expire or clear", async () => {
+	let calls = 0;
+	const quotas = await service(async () => {
+		calls++;
+		return [window(0)];
+	});
+	const ctx = { modelRegistry: {} };
+	quotas.rememberProviderQuota(CHATGPT_QUOTA_KEY, { chatgptLimitAt: Date.now() });
+	const limited = await quotas.readProviderQuota(CHATGPT_QUOTA_KEY, ctx);
+	assert.equal(limited.windows.length, 0);
+	assert.equal(quotas.isQuotaExhausted(limited), true);
+	// The API-key account under the plain provider id is a different account.
+	assert.equal(await quotas.readProviderQuota("openai", ctx), undefined);
+	assert.equal(calls, 0); // Never spawn Codex or borrow its account for openai.
+	quotas.rememberProviderQuota(CHATGPT_QUOTA_KEY, { chatgptLimitAt: Date.now() - 5 * 60_000 });
+	assert.equal(quotas.isQuotaExhausted(await quotas.readProviderQuota(CHATGPT_QUOTA_KEY, ctx)), false);
+	quotas.rememberProviderQuota(CHATGPT_QUOTA_KEY, { chatgptLimitAt: undefined });
+	assert.equal(quotas.providerQuotas.get(CHATGPT_QUOTA_KEY).chatgptLimitAt, undefined);
+	assert.equal(quotas.isQuotaExhausted(await quotas.readProviderQuota(CHATGPT_QUOTA_KEY, ctx)), false);
+});
+
+async function chatgptTracker() {
+	const quotas = await service(async () => []);
+	const models = {
+		chatgpt: { provider: "openai", id: "chatgpt", api: "openai-responses", baseUrl: "https://api.openai.com/v1" },
+		proxy: { provider: "openai", id: "proxy", api: "openai-responses", baseUrl: "https://proxy.example/v1" },
+		virtual: { provider: "openai", id: "auto", api: "pi-virtual", baseUrl: "https://api.openai.com/v1" },
+	};
+	const ctx = {
+		// Deliberately unrelated to the replies below: attribution follows the message.
+		model: models.proxy,
+		modelRegistry: {
+			find: (provider, id) => Object.values(models).find((m) => m.provider === provider && m.id === id),
+			isUsingOAuth: () => true,
+		},
+	};
+	let handler;
+	quotas.trackChatGPTLimits({
+		on: (name, fn) => {
+			assert.equal(name, "message_end");
+			handler = fn;
+		},
+	});
+	const end = (model, errorMessage, stopReason = errorMessage ? "error" : "stop", role = "assistant") =>
+		handler({ message: { role, provider: "openai", model, errorMessage, stopReason } }, ctx);
+	const limitAt = () => quotas.providerQuotas.get(CHATGPT_QUOTA_KEY)?.chatgptLimitAt;
+	return { quotas, end, limitAt };
+}
+
+test("ChatGPT limits follow the model that replied, not the current selection", async () => {
+	const { quotas, end, limitAt } = await chatgptTracker();
+	end("chatgpt", "subscription_sharing_usage_limit_exceeded", "error", "toolResult");
+	assert.equal(limitAt(), undefined);
+	// An API-key or virtual reply is a different account; it neither sets nor clears the limit.
+	end("proxy", "subscription_sharing_usage_limit_exceeded");
+	end("virtual", "subscription_sharing_usage_limit_exceeded");
+	end("unknown", "subscription_sharing_usage_limit_exceeded");
+	assert.equal(limitAt(), undefined);
+	end("chatgpt", "subscription_sharing_usage_limit_exceeded: app limit");
+	assert.ok(limitAt());
+	assert.equal(quotas.providerQuotas.has("openai"), false);
+	end("proxy");
+	end("virtual");
+	assert.ok(limitAt());
+	end("chatgpt", "temporary network error");
+	end("chatgpt", "subscription_sharing_usage_unavailable");
+	end("chatgpt", undefined, "aborted");
+	assert.ok(limitAt());
+	end("chatgpt");
+	assert.equal(limitAt(), undefined);
 });

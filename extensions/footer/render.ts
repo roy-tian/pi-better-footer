@@ -2,18 +2,20 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { homedir } from "node:os";
 import { sep } from "node:path";
-import { COPILOT_PROVIDER } from "../quota/quotas";
+import { CHATGPT_QUOTA_KEY, CHATGPT_USAGE_URL, COPILOT_PROVIDER, hasRecentChatGPTLimit } from "../quota/quotas";
 import type { FooterState } from "./state";
 import { summarizeSessionUsage } from "./session-stats";
 
 export interface FooterTheme {
 	readonly name?: string;
+	readonly appearance?: "dark" | "light";
 	fg(color: string, text: string): string;
 	bold(text: string): string;
 	getColorMode?(): "truecolor" | "256color";
 }
 
 function isLightFooterTheme(theme: FooterTheme | undefined): boolean {
+	if (theme?.appearance !== undefined) return theme.appearance === "light";
 	const name = theme?.name?.toLowerCase() ?? "";
 	if (name.includes("light")) return true;
 	if (name.includes("dark")) return false;
@@ -229,6 +231,14 @@ export function renderFooter(H: FooterRenderHandle & { theme?: FooterTheme }, wi
 		modelSegments.push(`${providerModel} ${fg("accent", state.thinkingLevel || "off")}`);
 	} else {
 		modelSegments.push(providerModel);
+	}
+
+	if (state.currentQuotaKey === CHATGPT_QUOTA_KEY) {
+		const limited = hasRecentChatGPTLimit(state.providerQuotas.get(CHATGPT_QUOTA_KEY)?.chatgptLimitAt);
+		const label = fg(limited ? "error" : "dim", limited ? "ChatGPT limit" : "ChatGPT");
+		// The direct-token flow exposes no numeric subscription balance. Link to
+		// the official usage page instead of borrowing another Codex CLI account.
+		modelSegments.push(`\x1b]8;;${CHATGPT_USAGE_URL}\x1b\\${label}\x1b]8;;\x1b\\`);
 	}
 
 	if (state.currentModelProvider === COPILOT_PROVIDER && state.copilotCredits) {

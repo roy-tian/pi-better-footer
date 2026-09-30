@@ -1,8 +1,12 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+	CHATGPT_QUOTA_KEY,
 	COPILOT_PROVIDER,
 	isOpenCodeGoProvider,
+	isOpenAIChatGPTLimitError,
 	isZaiProvider,
+	hasRecentChatGPTLimit,
+	quotaKey,
 	readCodexRateLimits,
 	readGitHubCopilotCredits,
 	readOpenCodeGoRateLimits,
@@ -10,9 +14,12 @@ import {
 	type RateWindow,
 } from "./quotas";
 
+/** Keyed by quotaKey: the provider, or CHATGPT_QUOTA_KEY for the ChatGPT sign-in. */
 export interface ProviderQuotaSnapshot {
 	windows: RateWindow[];
 	copilotCredits?: string;
+	/** A live ChatGPT app-limit denial (CHATGPT_QUOTA_KEY only); no percentage or reset time is implied. */
+	chatgptLimitAt?: number;
 	updatedAt: number;
 }
 
@@ -42,12 +49,13 @@ const { inFlight, requestVersions } = store;
 
 export function rememberProviderQuota(
 	provider: string,
-	update: Partial<Pick<ProviderQuotaSnapshot, "windows" | "copilotCredits">>,
+	update: Partial<Pick<ProviderQuotaSnapshot, "windows" | "copilotCredits" | "chatgptLimitAt">>,
 ): void {
 	const previous = providerQuotas.get(provider);
 	providerQuotas.set(provider, {
 		windows: update.windows ?? previous?.windows ?? [],
 		copilotCredits: update.copilotCredits ?? previous?.copilotCredits,
+		chatgptLimitAt: "chatgptLimitAt" in update ? update.chatgptLimitAt : previous?.chatgptLimitAt,
 		updatedAt: Date.now(),
 	});
 }
@@ -98,8 +106,32 @@ export async function readProviderQuota(
 	}
 }
 
+/**
+ * Record ChatGPT app-limit denials, and clear them on a success, for the model
+ * each reply came from: the selection may have changed while it streamed.
+ * Registered on its own so the footer and model cycling both read the result.
+ */
+export function trackChatGPTLimits(pi: ExtensionAPI): void {
+	pi.on("message_end", (event, ctx) => {
+		const msg = event.message as
+			| { role?: string; provider?: string; model?: string; errorMessage?: string; stopReason?: string }
+			| undefined;
+		if (msg?.role !== "assistant" || !msg.provider || !msg.model) return;
+		const model = ctx.modelRegistry.find(msg.provider, msg.model);
+		if (quotaKey(model, ctx.modelRegistry) !== CHATGPT_QUOTA_KEY) return;
+		if (msg.errorMessage && isOpenAIChatGPTLimitError(msg.errorMessage)) {
+			// This is an app/permission usage limit, not evidence that the
+			// entire plan is at 0% or will reset after a guessed duration.
+			rememberProviderQuota(CHATGPT_QUOTA_KEY, { chatgptLimitAt: Date.now() });
+		} else if (!msg.errorMessage && msg.stopReason !== "error" && msg.stopReason !== "aborted") {
+			rememberProviderQuota(CHATGPT_QUOTA_KEY, { chatgptLimitAt: undefined });
+		}
+	});
+}
+
 export function isQuotaExhausted(snapshot: ProviderQuotaSnapshot | undefined): boolean {
 	if (!snapshot) return false;
+	if (hasRecentChatGPTLimit(snapshot.chatgptLimitAt)) return true;
 	// Every Copilot model consumes premium requests, so "0/N" blocks the whole provider.
 	const credits = snapshot.copilotCredits?.match(/^(\d+)\//);
 	if (credits && Number(credits[1]) <= 0) return true;

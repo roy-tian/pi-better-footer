@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
 import { test } from "node:test";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
+import { CHATGPT_QUOTA_KEY, CHATGPT_USAGE_URL, hasRecentChatGPTLimit, quotaKey } from "../extensions/quota/openai.ts";
 
 const source = stripTypeScriptTypes(await readFile(new URL("../extensions/footer/index.ts", import.meta.url), "utf8"));
 const deferred = () => {
@@ -20,13 +21,16 @@ async function harness(provider = "zai", overrides = {}) {
 	const pending = [];
 	let holder;
 	const widgets = [];
+	const providerQuotas = new Map();
 	const fakeQuotas = {
+		CHATGPT_QUOTA_KEY,
+		quotaKey,
 		COPILOT_PROVIDER: "github-copilot",
 		COPILOT_CREDITS_REFRESH_MS: 30000,
 		compareRateWindows: () => 0,
 		detectRateWindows: () => [],
 		toRateWindows: (raw) => overrides.toRateWindows?.(raw) ?? [],
-		parseLimitError: () => undefined,
+		parseLimitError: (error) => overrides.parseLimitError?.(error),
 		parseCodexUsageHeaders: () => [],
 		isZaiProvider: (p) => p?.startsWith("zai") ?? false,
 		isOpenCodeGoProvider: (p) => p === "opencode-go",
@@ -44,9 +48,10 @@ async function harness(provider = "zai", overrides = {}) {
 		currentModelProvider: undefined,
 		currentModelId: undefined,
 		currentModelReasoning: false,
+		currentQuotaKey: undefined,
 		thinkingLevel: "off",
 		rateWindows: [],
-		providerQuotas: new Map(),
+		providerQuotas,
 		tokenSpeed: null,
 		streamFirstDelta: null,
 		streamFirstAnswerDelta: null,
@@ -63,8 +68,16 @@ async function harness(provider = "zai", overrides = {}) {
 	const git = { reads: 0, leaf: "leaf-0" };
 	const dependencies = {
 		"../quota/provider-quota": {
-			rememberProviderQuota() {},
+			rememberProviderQuota(provider, update) {
+				providerQuotas.set(provider, {
+					windows: [],
+					...providerQuotas.get(provider),
+					...update,
+					updatedAt: Date.now(),
+				});
+			},
 			async readProviderQuota(provider) {
+				if (provider === "openai") return providerQuotas.get(provider);
 				if (provider === "github-copilot") return undefined;
 				const windows =
 					provider === "openai-codex"
@@ -147,7 +160,10 @@ async function harness(provider = "zai", overrides = {}) {
 			cwd: "/test",
 			model: { provider: modelProvider, id: "test", reasoning: true },
 			scopedModels: models,
-			modelRegistry: { getApiKeyForProvider: async () => "test" },
+			modelRegistry: {
+				getApiKeyForProvider: async () => "test",
+				isUsingOAuth: () => overrides.oauth ?? false,
+			},
 			sessionManager: { getEntries: () => [], getCwd: () => "/test", getLeafId: () => git.leaf },
 			ui: {
 				setWidget: (key, factory, opts) => widgets.push({ key, factory, opts }),
@@ -464,7 +480,12 @@ async function loadRender() {
 		},
 
 		"./session-stats": { summarizeSessionUsage: () => sessionStats },
-		"../quota/quotas": { COPILOT_PROVIDER: "github-copilot" },
+		"../quota/quotas": {
+			COPILOT_PROVIDER: "github-copilot",
+			CHATGPT_QUOTA_KEY,
+			CHATGPT_USAGE_URL,
+			hasRecentChatGPTLimit,
+		},
 	};
 	await module.link(async (specifier) => {
 		const exports = dependencies[specifier] ?? (specifier.startsWith("node:") ? await import(specifier) : undefined);
@@ -613,4 +634,243 @@ test("the Z.AI monthly tool quota is marked with a hammer in the label color", a
 	const [light] = module.namespace.renderFooter(h, 500);
 	assert.match(light, /<accent:2h> <muted:40%>/);
 	assert.match(light, /<accent:\uEEFF> <muted:97%>/);
+});
+
+test("system appearance overrides missing or stale COLORFGBG and follows live theme changes", async (t) => {
+	const old = process.env.COLORFGBG;
+	t.after(() => {
+		if (old === undefined) delete process.env.COLORFGBG;
+		else process.env.COLORFGBG = old;
+	});
+	const module = await loadRender();
+	const h = {
+		state: {
+			currentModelProvider: "test",
+			currentModelId: "model",
+			rateWindows: [{ ...window("tokens", 25), hasReset: true, resetSec: 3700 }],
+		},
+		ctx: {
+			sessionManager: {},
+			getContextUsage: () => ({ tokens: 80000, percent: 80, contextWindow: 100000 }),
+		},
+		theme: { name: "system", appearance: "light", fg: (color, text) => `<${color}:${text}>` },
+	};
+	for (const env of [undefined, "0;0"]) {
+		if (env === undefined) delete process.env.COLORFGBG;
+		else process.env.COLORFGBG = env;
+		const [light] = module.namespace.renderFooter(h, 1000);
+		assert.match(light, /<accent:1h> <syntaxFunction:25%>/);
+		assert.ok(light.includes("\x1b[38;2;194;65;12m80k"));
+		assert.ok(light.includes("\x1b[38;2;154;154;154m500"));
+	}
+	process.env.COLORFGBG = "0;15";
+	h.theme.appearance = "dark";
+	h.theme.name = "custom-light-name"; // Explicit appearance even wins over the name.
+	const [dark] = module.namespace.renderFooter(h, 1000);
+	assert.match(dark, /<dim:1h> <warning:25%>/);
+	assert.match(dark, /<warning:80k>/);
+	assert.ok(dark.includes("\x1b[38;2;144;144;144m500"));
+});
+
+test("OpenAI ChatGPT shows neither API headers nor a Codex poll", async () => {
+	const h = await harness("openai", { oauth: true, toRateWindows: () => [window("tokens", 0)] });
+	const ctx = h.createCtx();
+	Object.assign(ctx.model, { api: "openai-responses", baseUrl: "https://api.openai.com/v1" });
+	await h.emit("session_start", {}, ctx);
+	assert.equal(h.state.currentQuotaKey, CHATGPT_QUOTA_KEY);
+	assert.equal(h.pending.length, 0);
+	await h.emit("before_provider_request", {}, ctx);
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	assert.equal(h.state.rateWindows.length, 0);
+	assert.equal(h.state.providerQuotas.size, 0);
+	// Limits are recorded by the quota layer (trackChatGPTLimits), not the footer.
+	await h.emit(
+		"message_end",
+		{ message: { role: "assistant", provider: "openai", errorMessage: "subscription_sharing_usage_limit_exceeded" } },
+		ctx,
+	);
+	assert.equal(h.state.providerQuotas.size, 0);
+	h.tick();
+	assert.equal(h.pending.length, 0);
+	await h.emit("session_shutdown", {}, ctx);
+});
+
+test("a /login or /logout moves the footer to the other OpenAI account without a model switch", async () => {
+	let percent = 0;
+	const h = await harness("openai", {
+		toRateWindows: () => {
+			percent += 10;
+			return [window("tokens", percent)];
+		},
+	});
+	const ctx = h.createCtx();
+	Object.assign(ctx.model, { api: "openai-responses", baseUrl: "https://api.openai.com/v1" });
+	await h.emit("session_start", {}, ctx);
+	await h.emit("before_provider_request", {}, ctx);
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	assert.equal(h.state.currentQuotaKey, "openai");
+	assert.equal(h.state.rateWindows.length, 1);
+	ctx.modelRegistry.isUsingOAuth = () => true;
+	h.tick();
+	assert.equal(h.state.currentQuotaKey, CHATGPT_QUOTA_KEY);
+	assert.equal(h.state.rateWindows.length, 0);
+	// A request sent after /login belongs to the ChatGPT account, whose headers are not shown.
+	await h.emit("before_provider_request", {}, ctx);
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	assert.equal(h.state.rateWindows.length, 0);
+	ctx.modelRegistry.isUsingOAuth = () => false;
+	h.tick();
+	assert.equal(h.state.currentQuotaKey, "openai");
+	assert.equal(h.state.rateWindows[0].percent, 10); // The API-key account's cached windows return.
+	// The note from before /logout belongs to the ChatGPT account.
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	assert.equal(h.state.rateWindows[0].percent, 10);
+	assert.equal(h.state.providerQuotas.get("openai").windows[0].percent, 10);
+	await h.emit("session_shutdown", {}, ctx);
+});
+
+test("overlapping requests under one selection are both credited", async () => {
+	let percent = 0;
+	const h = await harness("anthropic", {
+		toRateWindows: () => {
+			percent += 10;
+			return [window("tokens", percent)];
+		},
+	});
+	const ctx = h.createCtx();
+	await h.emit("session_start", {}, ctx);
+	// A cache-warming request overlaps the main one; both answer afterwards.
+	await h.emit("before_provider_request", {}, ctx);
+	await h.emit("before_provider_request", {}, ctx);
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	assert.equal(h.state.rateWindows[0].percent, 20);
+	assert.equal(h.state.providerQuotas.get("anthropic").windows[0].percent, 20);
+	await h.emit("session_shutdown", {}, ctx);
+});
+
+test("ChatGPT rendering links to usage without a fake balance or reset countdown", async () => {
+	const module = await loadRender();
+	const quotas = new Map();
+	const h = {
+		state: {
+			currentModelProvider: "openai",
+			currentModelId: "model",
+			currentQuotaKey: CHATGPT_QUOTA_KEY,
+			providerQuotas: quotas,
+			rateWindows: [],
+		},
+	};
+	const render = () => module.namespace.renderFooter(h, 1000)[0];
+	assert.ok(render().includes(CHATGPT_USAGE_URL));
+	assert.ok(render().includes("ChatGPT"));
+	assert.ok(!render().includes("ChatGPT limit"));
+	quotas.set(CHATGPT_QUOTA_KEY, { chatgptLimitAt: Date.now() });
+	assert.ok(render().includes("ChatGPT limit"));
+	assert.doesNotMatch(render(), /0%|5h|0s/);
+	quotas.set(CHATGPT_QUOTA_KEY, { chatgptLimitAt: Date.now() - 5 * 60_000 });
+	assert.ok(!render().includes("ChatGPT limit"));
+	h.state.currentQuotaKey = "openai";
+	assert.ok(!render().includes(CHATGPT_USAGE_URL));
+});
+
+test("virtual selections never poll their namesake provider and drop pending physical quota", async () => {
+	const h = await harness("openai-codex");
+	const ctx = h.createCtx();
+	ctx.model.api = "pi-virtual";
+	await h.emit("session_start", {}, ctx);
+	assert.equal(h.pending.length, 0);
+	assert.equal(h.state.currentQuotaKey, undefined);
+	h.tick();
+	assert.equal(h.pending.length, 0);
+	ctx.model = { ...ctx.model, api: "openai-codex-responses", id: "physical" };
+	await h.emit("model_select", { model: ctx.model }, ctx);
+	assert.equal(h.pending.length, 1);
+	const pending = h.pending.shift();
+	ctx.model = { ...ctx.model, api: "pi-virtual", id: "auto" };
+	await h.emit("model_select", { model: ctx.model }, ctx);
+	pending.resolve([window("codex:primary", 0)]);
+	await new Promise(setImmediate);
+	assert.equal(h.state.rateWindows.length, 0);
+	await h.emit("session_shutdown", {}, ctx);
+});
+
+test("OpenAI API-key and ChatGPT switches clear displayed limits and ignore the previous billing path's headers", async () => {
+	const h = await harness("openai", { oauth: true, toRateWindows: () => [window("tokens", 0)] });
+	const ctx = h.createCtx();
+	Object.assign(ctx.model, { api: "openai-responses", baseUrl: "https://api.openai.com/v1" });
+	ctx.modelRegistry.isUsingOAuth = () => false;
+	await h.emit("session_start", {}, ctx);
+	await h.emit("before_provider_request", {}, ctx);
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	assert.equal(h.state.rateWindows.length, 1);
+	await h.emit("before_provider_request", {}, ctx);
+	ctx.modelRegistry.isUsingOAuth = () => true;
+	await h.emit("model_select", { model: ctx.model }, ctx);
+	assert.equal(h.state.rateWindows.length, 0);
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	assert.equal(h.state.rateWindows.length, 0);
+	await h.emit("before_provider_request", {}, ctx);
+	ctx.modelRegistry.isUsingOAuth = () => false;
+	await h.emit("model_select", { model: ctx.model }, ctx);
+	h.state.rateWindows = [];
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	assert.equal(h.state.rateWindows.length, 0);
+	await h.emit("session_shutdown", {}, ctx);
+});
+
+test("an old session's response headers never populate a new session on the same provider", async () => {
+	const h = await harness("anthropic", { toRateWindows: () => [window("tokens", 0)] });
+	const first = h.createCtx();
+	await h.emit("session_start", {}, first);
+	await h.emit("before_provider_request", {}, first);
+	const second = h.createCtx();
+	await h.emit("session_start", {}, second);
+	await h.emit("after_provider_response", { status: 200, headers: {} }, second);
+	assert.equal(h.state.rateWindows.length, 0);
+	await h.emit("session_shutdown", {}, second);
+});
+
+test("virtual ZAI selections do not replay or cache their namesake physical quota errors", async () => {
+	const h = await harness("zai", { parseLimitError: () => window("zai:3", 0) });
+	const ctx = h.createCtx();
+	ctx.model.api = "pi-virtual";
+	ctx.sessionManager.getEntries = () => [
+		{ type: "message", message: { role: "assistant", provider: "zai", errorMessage: "429 quota error" } },
+	];
+	await h.emit("session_start", {}, ctx);
+	await h.emit(
+		"message_end",
+		{ message: { role: "assistant", provider: "zai", errorMessage: "429 quota error" } },
+		ctx,
+	);
+	assert.equal(h.state.rateWindows.length, 0);
+	assert.equal(h.state.providerQuotas.has("zai"), false);
+	assert.equal(h.pending.length, 0);
+	await h.emit("session_shutdown", {}, ctx);
+});
+
+test("same-provider physical and virtual switches never misattribute response headers", async () => {
+	const h = await harness("anthropic", { toRateWindows: () => [window("tokens", 0)] });
+	const ctx = h.createCtx();
+	ctx.model.api = "pi-virtual";
+	await h.emit("session_start", {}, ctx);
+	await h.emit("before_provider_request", {}, ctx);
+	ctx.model = { ...ctx.model, api: "anthropic-messages", id: "physical" };
+	await h.emit("model_select", { model: ctx.model }, ctx);
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	assert.equal(h.state.rateWindows.length, 0);
+	assert.equal(h.state.providerQuotas.has("anthropic"), false);
+	// Nor may a second response to the request sent under the virtual selection.
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	assert.equal(h.state.rateWindows.length, 0);
+	await h.emit("before_provider_request", {}, ctx);
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	assert.equal(h.state.rateWindows.length, 1);
+	await h.emit("before_provider_request", {}, ctx);
+	ctx.model = { ...ctx.model, api: "pi-virtual", id: "auto" };
+	await h.emit("model_select", { model: ctx.model }, ctx);
+	await h.emit("after_provider_response", { status: 200, headers: {} }, ctx);
+	assert.equal(h.state.rateWindows.length, 0);
+	await h.emit("session_shutdown", {}, ctx);
 });

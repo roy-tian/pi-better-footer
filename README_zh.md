@@ -55,13 +55,18 @@ pi --no-extensions --extension ./extensions/index.ts
 
 | Provider | 数据来源 |
 | --- | --- |
-| OpenAI Codex | Codex app-server 的额度信息，必要时结合响应头；需要 `codex` CLI。 |
+| OpenAI Codex（旧路径） | Codex app-server 的额度信息，必要时结合响应头；需要 `codex` CLI。 |
+| OpenAI — 使用 ChatGPT 登录（Pi 0.99+） | 使用官方 Responses API 的 `subscription_sharing_usage_limit_exceeded` 错误确认当前应用受限。状态栏链接到 ChatGPT 用量页；不轮询余额、不猜测百分比或重置时间，也不复用 Codex CLI 账号额度。 |
 | Z.AI / GLM | 使用 Pi 已配置的 provider 密钥查询账户额度；遇到 429 时可从错误信息补充。月度工具调用额度用锤子图标标记（需 [Nerd Font](https://www.nerdfonts.com/)）。 |
 | OpenCode Go | 使用 `OPENCODE_GO_API_KEY`、Pi 中配置的 key 或 OpenCode CLI 凭据访问用量 API；也可使用可选的 dashboard cookie 配置作为后备。 |
 | GitHub Copilot | Pi 登录记录中的 premium credits。 |
 | 其他 provider | 支持时读取 API 返回的限流响应头（不一定代表订阅额度）。 |
 
 额度读取是尽力而为：当前 provider 的部分来源会周期查询，其他来源依赖响应头；没有返回、认证失败或数据过期时，不会当作额度耗尽。扩展读取本机已有的认证信息，不在仓库中存放凭据。OpenCode Go 的可选配置路径与环境变量见 [`extensions/quota/opencode-go.ts`](extensions/quota/opencode-go.ts)。
+
+使用 **ChatGPT 登录**时，状态栏显示可点击的 `ChatGPT` 标签（需终端支持超链接）；收到明确的应用使用限制错误后显示 `ChatGPT limit`。该限制可能只针对当前应用，不能据此认为整个订阅余额为零。模型轮换最多在五分钟内信任该限制状态，成功响应会提前清除；这只是信息新鲜度上限，**不是**预测的额度重置时间。API key 计费和普通 token 限流保持独立。详见 [OpenAI 官方错误恢复规则](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery)。
+
+**虚拟模型**可能路由到不同 provider，不会根据其选中 provider 的额度被跳过；状态栏也不会对虚拟模型轮询或归属响应头额度。Pi 0.99 的 `system` 主题优先使用 `theme.appearance` 判断明暗，旧版 Pi 则回退到主题名称和环境变量。
 
 ## 开发
 
