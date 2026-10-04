@@ -30,7 +30,8 @@
  * - Other providers: auto-detected response headers (`x-ratelimit-*`, etc.)
  *
  * Token speed covers only the streamed part of each assistant reply: time to
- * first token and tool execution are excluded (see measureTokenSpeed).
+ * first token and tool execution are excluded (see measureTokenSpeed). Replies
+ * containing tool calls are skipped: their usage mixes text and tool arguments.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -423,6 +424,7 @@ export default function (pi: ExtensionAPI) {
 		H.state.streamFirstDelta = null;
 		H.state.streamFirstAnswerDelta = null;
 		H.state.streamLastModelUpdate = null;
+		H.state.streamHasToolCall = false;
 	};
 
 	pi.on("message_start", (event) => {
@@ -432,10 +434,16 @@ export default function (pi: ExtensionAPI) {
 	pi.on("message_update", (event) => {
 		if (event.message?.role !== "assistant") return;
 		const kind = event.assistantMessageEvent?.type;
-		// Only deltas are model output. Block-end, done and abort events can land
+		// Even a tool-call start without argument deltas disqualifies this reply
+		// (e.g. an aborted call, or a provider that delivers complete arguments).
+		if (kind === "toolcall_start" || kind === "toolcall_delta" || kind === "toolcall_end") {
+			H.state.streamHasToolCall = true;
+			return;
+		}
+		// Only text/thinking deltas belong to the reply speed. Block-end, done and abort events can land
 		// well after the last token — an aborted reply would otherwise count its
 		// idle stall as generation time and understate t/s.
-		if (!kind?.endsWith("_delta")) return;
+		if (kind !== "text_delta" && kind !== "thinking_delta") return;
 		const now = performance.now();
 		H.state.streamFirstDelta ??= now;
 		if (kind !== "thinking_delta") H.state.streamFirstAnswerDelta ??= now;
@@ -445,7 +453,13 @@ export default function (pi: ExtensionAPI) {
 	pi.on("message_end", (event) => {
 		markActive();
 		const msg = event.message as
-			| { role?: string; provider?: string; usage?: StreamUsage; errorMessage?: string }
+			| {
+					role?: string;
+					provider?: string;
+					usage?: StreamUsage;
+					errorMessage?: string;
+					content?: { type: string }[];
+			  }
 			| undefined;
 		if (msg?.role !== "assistant") {
 			requestRender();
@@ -466,8 +480,14 @@ export default function (pi: ExtensionAPI) {
 		// poll interval: an agent loop ends many assistant messages per prompt.
 		void refreshQuota();
 
-		const speed = measureTokenSpeed(H.state, msg.usage);
-		if (speed !== undefined) H.state.tokenSpeed = speed;
+		// Providers report whole-message output usage, not separate counts for
+		// text and tool arguments. Timing only the text would still include tool
+		// tokens in the numerator, so skip mixed replies rather than guess.
+		const hasToolCall = H.state.streamHasToolCall || msg.content?.some((block) => block.type === "toolCall");
+		if (!hasToolCall) {
+			const speed = measureTokenSpeed(H.state, msg.usage);
+			if (speed !== undefined) H.state.tokenSpeed = speed;
+		}
 		resetStreamTiming();
 		requestRender();
 	});

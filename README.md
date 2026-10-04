@@ -14,6 +14,8 @@ A compact, live status line for [Pi](https://pi.dev/). See your current model, a
 - **Git status where you work.** A right-aligned line above the editor shows the working directory, branch, and added/removed line counts, including untracked files. Counts are re-read whenever the tree may have changed (tool runs, submitted prompts, branch switches, `!` shell commands) — not on a fixed timer.
 - **Keep your workflow across sessions.** Remember the last model and thinking level per working directory for new sessions and fresh Pi starts, without changing Pi's saved defaults. When cycling scoped models with `Ctrl+P` (or your configured cycle keys), skip providers **known** to have exhausted quota. Both behaviors are on by default and can be turned off independently. Unknown quota is never treated as exhausted.
 
+`t/s` shows the last measurable reply's output speed, excluding time to first token and tool execution. Replies containing tool calls (including mixed text/tool replies) do not update it: providers do not report separate token counts for text and tool arguments. CLI output and tool results never count; the previous reading stays visible. Reported reasoning tokens are excluded; otherwise streamed thinking is included.
+
 ## Install
 
 Install from npm:

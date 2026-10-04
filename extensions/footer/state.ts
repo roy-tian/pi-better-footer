@@ -10,12 +10,14 @@ export interface FooterState {
 	thinkingLevel: string;
 	rateWindows: RateWindow[];
 	providerQuotas: Map<string, ProviderQuotaSnapshot>;
-	tokenSpeed: number | null; // output tokens / second of the last assistant stream
-	/** First streamed delta of any kind (text, thinking, or tool call). */
+	tokenSpeed: number | null; // output tokens / second of the last measurable reply without tool calls
+	/** First streamed text or thinking delta. */
 	streamFirstDelta: number | null;
-	/** First streamed text or tool-call delta, i.e. after any reasoning. */
+	/** First streamed text delta, i.e. after any reasoning. */
 	streamFirstAnswerDelta: number | null;
 	streamLastModelUpdate: number | null;
+	/** Whole-message usage cannot separate tool arguments from reply text. */
+	streamHasToolCall: boolean;
 	gitAdded: number;
 	gitRemoved: number;
 	gitDirty: boolean;
@@ -42,6 +44,7 @@ export function createState(): FooterState {
 		streamFirstDelta: null,
 		streamFirstAnswerDelta: null,
 		streamLastModelUpdate: null,
+		streamHasToolCall: false,
 		gitAdded: 0,
 		gitRemoved: 0,
 		gitDirty: false,

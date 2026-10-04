@@ -56,6 +56,7 @@ async function harness(provider = "zai", overrides = {}) {
 		streamFirstDelta: null,
 		streamFirstAnswerDelta: null,
 		streamLastModelUpdate: null,
+		streamHasToolCall: false,
 		gitAdded: 0,
 		gitRemoved: 0,
 		gitDirty: false,
@@ -460,6 +461,79 @@ test("token speed starts at the first streamed token and leaves out hidden reaso
 	);
 	// A reply with no measurable stream keeps the previous reading.
 	assert.equal(await stream([], { output: 10 }), 100);
+	await h.emit("session_shutdown", {}, ctx);
+});
+
+test("token speed skips tool-call replies and resumes on the next text reply", async () => {
+	const h = await harness("anthropic");
+	const ctx = h.createCtx();
+	await h.emit("session_start", {}, ctx);
+	const assistant = (extra = {}) => ({ role: "assistant", ...extra });
+	const update = async (type, at) => {
+		h.clock.now = at;
+		await h.emit("message_update", { message: assistant(), assistantMessageEvent: { type } }, ctx);
+	};
+
+	for (const kind of ["toolcall_start", "toolcall_delta", "toolcall_end", "final-content", "tool-only"]) {
+		await h.emit("message_start", { message: assistant() }, ctx);
+		if (kind !== "tool-only") {
+			await update("text_delta", 1000);
+			await update("text_delta", 2000);
+		}
+		if (kind !== "final-content") {
+			await update(kind === "tool-only" ? "toolcall_delta" : kind, 3000);
+			await update(kind === "tool-only" ? "toolcall_delta" : "text_delta", 4000);
+		}
+		await h.emit(
+			"message_end",
+			{
+				message: assistant({
+					usage: { output: 1200 },
+					// Final content is authoritative even when no tool-call event was seen.
+					content: kind === "final-content" ? [{ type: "toolCall" }] : [],
+				}),
+			},
+			ctx,
+		);
+		assert.equal(h.state.tokenSpeed, kind === "toolcall_start" ? null : 50, kind);
+		assert.equal(h.state.streamHasToolCall, false);
+
+		// A tool reply must not prevent a subsequent ordinary reply from updating t/s.
+		await h.emit("message_start", { message: assistant() }, ctx);
+		await update("text_delta", 5000);
+		await update("text_delta", 7000);
+		await h.emit("message_end", { message: assistant({ usage: { output: 100 } }) }, ctx);
+		assert.equal(h.state.tokenSpeed, 50);
+	}
+	await h.emit("session_shutdown", {}, ctx);
+});
+
+test("CLI output and tool results do not change model timing or speed", async () => {
+	const h = await harness("anthropic");
+	const ctx = h.createCtx();
+	await h.emit("session_start", {}, ctx);
+	await h.emit("message_start", { message: { role: "assistant" } }, ctx);
+	for (const at of [1000, 3000]) {
+		h.clock.now = at;
+		await h.emit(
+			"message_update",
+			{ message: { role: "assistant" }, assistantMessageEvent: { type: "text_delta" } },
+			ctx,
+		);
+	}
+	h.clock.now = 9000;
+	for (const role of ["toolResult", "bashExecution", "custom"]) {
+		const message = { role, usage: { output: 10000 }, content: "CLI output" };
+		await h.emit("message_start", { message }, ctx);
+		await h.emit("message_update", { message, assistantMessageEvent: { type: "text_delta" } }, ctx);
+		await h.emit("message_end", { message }, ctx);
+	}
+	await h.emit("tool_execution_update", { toolName: "bash", partialResult: { content: "CLI output" } }, ctx);
+	assert.equal(h.state.streamFirstDelta, 1000);
+	assert.equal(h.state.streamLastModelUpdate, 3000);
+	assert.equal(h.state.tokenSpeed, null);
+	await h.emit("message_end", { message: { role: "assistant", usage: { output: 100 } } }, ctx);
+	assert.equal(h.state.tokenSpeed, 50);
 	await h.emit("session_shutdown", {}, ctx);
 });
 
