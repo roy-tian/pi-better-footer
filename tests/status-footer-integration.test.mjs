@@ -21,6 +21,9 @@ async function harness(provider = "zai", overrides = {}) {
 	const pending = [];
 	let holder;
 	const widgets = [];
+	const workingMessages = [];
+	const workingIndicators = [];
+	let footer;
 	const providerQuotas = new Map();
 	const fakeQuotas = {
 		CHATGPT_QUOTA_KEY,
@@ -53,10 +56,13 @@ async function harness(provider = "zai", overrides = {}) {
 		rateWindows: [],
 		providerQuotas,
 		tokenSpeed: null,
+		tokenSpeedEstimated: false,
+		streamEstimate: null,
 		streamFirstDelta: null,
 		streamFirstAnswerDelta: null,
 		streamLastModelUpdate: null,
 		streamHasToolCall: false,
+		projectVersion: undefined,
 		gitAdded: 0,
 		gitRemoved: 0,
 		gitDirty: false,
@@ -66,7 +72,7 @@ async function harness(provider = "zai", overrides = {}) {
 		quotaPolls: new Map(),
 		copilotCredits: undefined,
 	});
-	const git = { reads: 0, leaf: "leaf-0" };
+	const git = { reads: 0, versionReads: 0, leaf: "leaf-0" };
 	const dependencies = {
 		"../quota/provider-quota": {
 			rememberProviderQuota(provider, update) {
@@ -96,7 +102,12 @@ async function harness(provider = "zai", overrides = {}) {
 				holder = h;
 				return [""];
 			},
-			renderProjectLine: () => "project",
+		},
+		"./project": {
+			readProjectVersion: async () => {
+				git.versionReads++;
+				return overrides.readProjectVersion?.();
+			},
 		},
 		"./git": {
 			readGitChanges: () => {
@@ -167,10 +178,18 @@ async function harness(provider = "zai", overrides = {}) {
 			},
 			sessionManager: { getEntries: () => [], getCwd: () => "/test", getLeafId: () => git.leaf },
 			ui: {
+				theme: {
+					fg: (color, text) => `<${color}:${text}>`,
+					bold: (text) => `<bold:${text}>`,
+					getThinkingBorderColor: (level) => (text) => `<${level}:${text}>`,
+				},
+				setWorkingMessage: (message) => workingMessages.push(message),
+				setWorkingIndicator: (options) => workingIndicators.push(options),
 				setWidget: (key, factory, opts) => widgets.push({ key, factory, opts }),
 				setFooter: (factory) => {
-					if (factory)
-						factory(
+					footer?.dispose?.();
+					if (factory) {
+						footer = factory(
 							{ requestRender() {} },
 							{},
 							{
@@ -178,7 +197,9 @@ async function harness(provider = "zai", overrides = {}) {
 								getExtensionStatuses: () => new Map(),
 								onBranchChange: () => () => {},
 							},
-						).render(80);
+						);
+						footer.render(80);
+					}
 				},
 				onTerminalInput: () => () => {},
 			},
@@ -198,6 +219,9 @@ async function harness(provider = "zai", overrides = {}) {
 			return holder.state;
 		},
 		widgets,
+		workingMessages,
+		workingIndicators,
+		render: () => footer.render(80),
 		selected,
 		commands,
 	};
@@ -206,6 +230,38 @@ async function harness(provider = "zai", overrides = {}) {
 test("footer does not register a separate command", async () => {
 	const h = await harness();
 	assert.equal(h.commands.size, 0);
+});
+
+for (const mode of ["tui", "print", "json", "rpc"]) {
+	test(`${mode} never installs a widget or touches the editor`, async () => {
+		const h = await harness("openai");
+		const ctx = h.createCtx();
+		ctx.mode = mode;
+		ctx.ui.getEditorComponent = () => assert.fail("must not access the editor");
+		ctx.ui.setEditorComponent = () => assert.fail("must not replace the editor");
+		for (let session = 0; session < 2; session++) {
+			await h.emit("session_start", {}, ctx);
+			await h.emit("session_shutdown", {}, ctx);
+		}
+		assert.equal(h.widgets.length, 0);
+		assert.equal(h.workingMessages.length, 0);
+		assert.equal(h.workingIndicators.length, 0);
+	});
+}
+
+test("footer rendering and theme changes leave Pi's working indicator untouched", async () => {
+	const h = await harness("openai");
+	const ctx = h.createCtx();
+	await h.emit("session_start", {}, ctx);
+	for (let frame = 0; frame < 10; frame++) h.render();
+	ctx.ui.theme.fg = (color, text) => `<light-${color}:${text}>`;
+	h.render();
+	await h.emit("session_shutdown", {}, ctx);
+	await h.emit("session_start", {}, ctx);
+	h.render();
+	await h.emit("session_shutdown", {}, ctx);
+	assert.deepEqual(h.workingMessages, []);
+	assert.deepEqual(h.workingIndicators, []);
 });
 
 for (const [provider, scope] of [
@@ -221,7 +277,7 @@ for (const [provider, scope] of [
 		const second = h.createCtx();
 		await h.emit("session_start", {}, second);
 		const later = h.pending.shift();
-		assert.equal(h.widgets.at(-1).opts.placement, "aboveEditor");
+		assert.equal(h.widgets.length, 0);
 		later.resolve([window(scope, 80)]);
 		await later.promise;
 		await new Promise(setImmediate);
@@ -337,14 +393,62 @@ test("a git refresh requested during a read runs once more afterwards", async ()
 	await h.emit("session_shutdown", {}, ctx);
 });
 
-test("print runs never read git", async () => {
-	const h = await harness("anthropic");
+test("non-TUI runs never read git or project versions", async () => {
+	for (const mode of ["print", "json", "rpc"]) {
+		const h = await harness("anthropic");
+		const ctx = h.createCtx();
+		ctx.mode = mode;
+		await h.emit("session_start", {}, ctx);
+		await h.emit("tool_execution_end", { toolName: "edit" }, ctx);
+		await h.emit("agent_end", { messages: [] }, ctx);
+		assert.equal(h.git.reads, 0);
+		assert.equal(h.git.versionReads, 0);
+	}
+});
+
+test("project versions refresh on changes, clear when absent, and ignore replaced sessions", async () => {
+	let version = "v0.1.2";
+	const h = await harness("anthropic", { readProjectVersion: () => version });
 	const ctx = h.createCtx();
-	ctx.mode = "print";
 	await h.emit("session_start", {}, ctx);
+	await new Promise(setImmediate);
+	assert.equal(h.state.projectVersion, "v0.1.2", "works even without a git repository");
+	h.tick();
+	await h.emit("tool_execution_end", { toolName: "read" }, ctx);
+	assert.equal(h.git.versionReads, 1);
+	version = "v0.2.0";
 	await h.emit("tool_execution_end", { toolName: "edit" }, ctx);
-	await h.emit("agent_end", { messages: [] }, ctx);
-	assert.equal(h.git.reads, 0);
+	await new Promise(setImmediate);
+	assert.equal(h.state.projectVersion, "v0.2.0");
+	version = undefined;
+	await h.emit("input", { text: "hi" }, ctx);
+	await new Promise(setImmediate);
+	assert.equal(h.state.projectVersion, undefined);
+	const pending = deferred();
+	version = pending.promise;
+	await h.emit("input", { text: "hi" }, ctx);
+	version = "v3.0.0";
+	await h.emit("session_start", {}, ctx);
+	await new Promise(setImmediate);
+	pending.resolve("v2.0.0");
+	await new Promise(setImmediate);
+	assert.equal(h.state.projectVersion, "v3.0.0");
+	await h.emit("session_shutdown", {}, ctx);
+});
+
+test("a project version change shows without waiting for a slow git read", async () => {
+	const git = deferred();
+	const h = await harness("anthropic", { readProjectVersion: () => "v1.2.3", readGitChanges: () => git.promise });
+	const ctx = h.createCtx();
+	await h.emit("session_start", {}, ctx);
+	await new Promise(setImmediate);
+	assert.equal(h.state.projectVersion, "v1.2.3");
+	assert.equal(h.state.gitRefreshInFlight, true, "git is still running");
+	git.resolve({ added: 4, removed: 1, dirty: true });
+	await new Promise(setImmediate);
+	assert.equal(h.state.gitAdded, 4);
+	assert.equal(h.state.gitRefreshInFlight, false);
+	await h.emit("session_shutdown", {}, ctx);
 });
 
 test("quota polling backs off to 10 minutes, then an hour, while Pi is idle", async () => {
@@ -461,6 +565,126 @@ test("token speed starts at the first streamed token and leaves out hidden reaso
 	);
 	// A reply with no measurable stream keeps the previous reading.
 	assert.equal(await stream([], { output: 10 }), 100);
+	await h.emit("session_shutdown", {}, ctx);
+});
+
+test("live speed updates during streaming, throttles refreshes, and finalizes from usage", async () => {
+	const h = await harness("anthropic");
+	const ctx = h.createCtx();
+	await h.emit("session_start", {}, ctx);
+	const message = { role: "assistant" };
+	const delta = async (at, type, text) => {
+		h.clock.now = at;
+		await h.emit("message_update", { message, assistantMessageEvent: { type, delta: text } }, ctx);
+	};
+	await h.emit("message_start", { message }, ctx);
+	await delta(3000, "thinking_delta", "a".repeat(40));
+	assert.equal(h.state.tokenSpeed, null, "do not divide by zero at the first chunk");
+	await delta(3100, "thinking_delta", "a".repeat(40));
+	assert.equal(h.state.tokenSpeed, null, "wait for a 250ms sample");
+	await delta(3500, "thinking_delta", "a".repeat(40));
+	assert.equal(h.state.tokenSpeed, 40, "20 estimated tokens / 0.5s; the first chunk predates the clock");
+	assert.equal(h.state.tokenSpeedEstimated, true);
+	await delta(3600, "text_delta", "a".repeat(80));
+	assert.equal(h.state.tokenSpeed, 40, "throttle display updates, not token accumulation");
+	await delta(4000, "text_delta", "a".repeat(40));
+	assert.equal(h.state.tokenSpeed, 50, "50 estimated tokens / 1s, including the throttled chunk");
+	// A delayed completion uses the last delta, and reported reasoning is excluded.
+	h.clock.now = 9000;
+	await h.emit("message_end", { message: { ...message, usage: { output: 140, reasoning: 100 } } }, ctx);
+	assert.equal(h.state.tokenSpeed, 100);
+	assert.equal(h.state.tokenSpeedEstimated, false);
+	assert.equal(h.state.streamEstimate, null);
+	await h.emit("session_shutdown", {}, ctx);
+});
+
+test("live estimates include tool arguments and Unicode, but exclude tool results and CLI output", async () => {
+	const h = await harness("anthropic");
+	const ctx = h.createCtx();
+	await h.emit("session_start", {}, ctx);
+	const message = { role: "assistant" };
+	for (const mixed of [false, true]) {
+		await h.emit("message_start", { message }, ctx);
+		for (const [at, type] of [
+			[1000, mixed ? "text_delta" : "toolcall_delta"],
+			[2000, "toolcall_delta"],
+		]) {
+			h.clock.now = at;
+			await h.emit("message_update", { message, assistantMessageEvent: { type, delta: "中文".repeat(10) } }, ctx);
+		}
+		assert.equal(h.state.tokenSpeed, 20, "20 CJK tokens / 1s after the first chunk");
+		assert.equal(h.state.tokenSpeedEstimated, true);
+		await h.emit("message_end", { message: { ...message, usage: { output: 5000 } } }, ctx);
+		assert.equal(h.state.tokenSpeed, 20, "mixed/tool replies retain their marked estimate");
+		assert.equal(h.state.tokenSpeedEstimated, true);
+		for (const role of ["toolResult", "bashExecution", "custom"]) {
+			h.clock.now = 9000;
+			const toolMessage = { role, usage: { output: 9999 } };
+			await h.emit("message_start", { message: toolMessage }, ctx);
+			await h.emit(
+				"message_update",
+				{
+					message: toolMessage,
+					assistantMessageEvent: { type: "text_delta", delta: "a".repeat(1000) },
+				},
+				ctx,
+			);
+			await h.emit("message_end", { message: toolMessage }, ctx);
+		}
+		assert.equal(h.state.tokenSpeed, 20);
+		assert.equal(h.state.streamEstimate, null);
+	}
+	await h.emit("session_shutdown", {}, ctx);
+	await h.emit("session_start", {}, ctx);
+	assert.equal(h.state.tokenSpeed, null);
+	assert.equal(h.state.tokenSpeedEstimated, false);
+	assert.equal(h.state.streamEstimate, null);
+	await h.emit("session_shutdown", {}, ctx);
+});
+
+test("message_end flushes the estimate through the last chunk", async () => {
+	const h = await harness("anthropic");
+	const ctx = h.createCtx();
+	await h.emit("session_start", {}, ctx);
+	const message = { role: "assistant" };
+	const stream = async (chunks, end) => {
+		await h.emit("message_start", { message }, ctx);
+		for (const [at, type] of chunks) {
+			h.clock.now = at;
+			await h.emit("message_update", { message, assistantMessageEvent: { type, delta: "a".repeat(40) } }, ctx);
+		}
+		h.clock.now = 60_000;
+		await h.emit("message_end", { message: end }, ctx);
+	};
+
+	// A tool-call reply shorter than one 250ms sample still gets a reading.
+	await stream(
+		[
+			[1000, "toolcall_delta"],
+			[1100, "toolcall_delta"],
+			[1200, "toolcall_delta"],
+		],
+		{ ...message, usage: { output: 9999 }, content: [{ type: "toolCall" }] },
+	);
+	assert.equal(h.state.tokenSpeed, 100, "20 tokens / 0.2s, ending at the last chunk, not message_end");
+	assert.equal(h.state.tokenSpeedEstimated, true);
+
+	// Chunks after the last sample count; so does an unmeasurable plain reply.
+	await stream(
+		[
+			[2000, "text_delta"],
+			[2300, "text_delta"],
+			[2400, "text_delta"],
+		],
+		message,
+	);
+	assert.equal(h.state.tokenSpeed, 50, "20 tokens / 0.4s, not the 10 tokens / 0.3s sample");
+	assert.equal(h.state.tokenSpeedEstimated, true);
+
+	// A lone chunk has no measurable window and keeps the previous reading.
+	await stream([[3000, "toolcall_delta"]], { ...message, content: [{ type: "toolCall" }] });
+	assert.equal(h.state.tokenSpeed, 50);
+	assert.equal(h.state.streamEstimate, null);
 	await h.emit("session_shutdown", {}, ctx);
 });
 
@@ -586,11 +810,11 @@ test("the project path abbreviates HOME only at a real path boundary", async (t)
 	const project = (home, cwd) => {
 		process.env.HOME = home;
 		const h = {
-			state: { gitDirty: false },
-			ctx: { sessionManager: { getCwd: () => cwd } },
-			footerData: { getGitBranch: () => null },
+			state: { gitDirty: false, rateWindows: [] },
+			ctx: { sessionManager: { getCwd: () => cwd }, getContextUsage: () => undefined },
+			footerData: { getGitBranch: () => null, getExtensionStatuses: () => new Map() },
 		};
-		return module.namespace.renderProjectLine(h, 200).trim();
+		return module.namespace.renderFooter(h, 200)[0].trim();
 	};
 	assert.equal(project("/home/u", "/home/u/proj"), "~/proj");
 	assert.equal(project("/home/u/", "/home/u/proj"), "~/proj");
@@ -599,7 +823,7 @@ test("the project path abbreviates HOME only at a real path boundary", async (t)
 	assert.equal(project("/", "/workspace/app"), "/workspace/app");
 });
 
-test("footer fits narrow terminal widths without losing the model prefix", async () => {
+test("footer fits narrow terminal widths with project above usage and model", async () => {
 	const module = await loadRender();
 	const h = {
 		state: {
@@ -611,40 +835,45 @@ test("footer fits narrow terminal widths without losing the model prefix", async
 			tokenSpeed: 20,
 		},
 		ctx: {
-			sessionManager: { getEntries: () => [] },
+			sessionManager: { getEntries: () => [], getCwd: () => "/test" },
 			getContextUsage: () => ({ tokens: 50000, percent: 50, contextWindow: 100000 }),
 		},
-		footerData: { getExtensionStatuses: () => new Map() },
+		footerData: { getExtensionStatuses: () => new Map(), getGitBranch: () => "main" },
 	};
-	for (const width of [80, 32, 18, 8, 1]) {
-		const [line] = module.namespace.renderFooter(h, width);
-		assert.ok(line.length <= width, `${width}: ${line}`);
-		assert.ok(line.length > 0);
-		if (width === 80) assert.ok(line.startsWith("openai-codex/test-model"));
+	for (const width of [120, 80, 32, 18, 8, 1, 0]) {
+		const lines = module.namespace.renderFooter(h, width);
+		assert.equal(lines.length, 2);
+		for (const line of lines) assert.ok(line.length <= width, `${width}: ${line}`);
+		if (width === 120) {
+			assert.equal(lines[0], "/test  main");
+			assert.ok(lines[1].startsWith("↑1.2k/500 ↓200 CH29.4% · $0.123 · 50k/100k · 20t/s"));
+			assert.ok(lines[1].endsWith("openai-codex/test-model high · 80%"));
+		}
 	}
 
 	h.theme = { name: "dark", fg: (color, text) => `<${color}:${text}>`, bold: (text) => text };
-	const [normal] = module.namespace.renderFooter(h, 500);
+	const [, normal] = module.namespace.renderFooter(h, 500);
 	assert.match(normal, /<accent:↑><muted:1\.2k>/);
 	assert.match(normal, /<accent:↓><muted:200>/);
 	assert.match(normal, /<accent:CH><muted:29\.4%>/);
-	assert.match(normal, /<accent:50k>/);
+	assert.match(normal, /<muted:50k>/);
 
 	h.ctx.getContextUsage = () => ({ tokens: 80000, percent: 80, contextWindow: 100000 });
-	const [warning] = module.namespace.renderFooter(h, 500);
-	assert.match(warning, /<warning:↑><muted:1\.2k>/);
-	assert.match(warning, /<warning:↓><muted:200>/);
-	assert.match(warning, /<warning:CH><muted:29\.4%>/);
+	const [, warning] = module.namespace.renderFooter(h, 500);
+	assert.match(warning, /<accent:↑><muted:1\.2k>\/<dim:500>/);
+	assert.match(warning, /<accent:↓><muted:200>/);
+	assert.match(warning, /<accent:CH><muted:29\.4%>/);
+	assert.match(warning, /<accent:\$><muted:0\.123>/);
 	assert.match(warning, /<warning:80k>/);
 
 	h.ctx.getContextUsage = () => ({ tokens: 95000, percent: 95, contextWindow: 100000 });
-	const [error] = module.namespace.renderFooter(h, 500);
-	assert.match(error, /<error:↑><muted:1\.2k>/);
-	assert.match(error, /<error:↓><muted:200>/);
-	assert.match(error, /<error:CH><muted:29\.4%>/);
+	const [, error] = module.namespace.renderFooter(h, 500);
+	assert.match(error, /<accent:↑><muted:1\.2k>\/<dim:500>/);
+	assert.match(error, /<accent:↓><muted:200>/);
+	assert.match(error, /<accent:CH><muted:29\.4%>/);
 	assert.match(error, /<error:95k>/);
 	// The session cost keeps pi's own footer format, accent $ and muted amount.
-	assert.match(error, /<error:\$><muted:0\.123>/);
+	assert.match(error, /<accent:\$><muted:0\.123>/);
 });
 
 test("session cost sits left of the context segment and hides when unpriced", async () => {
@@ -659,20 +888,20 @@ test("session cost sits left of the context segment and hides when unpriced", as
 			tokenSpeed: null,
 		},
 		ctx: {
-			sessionManager: { getEntries: () => [] },
+			sessionManager: { getEntries: () => [], getCwd: () => "/test" },
 			getContextUsage: () => ({ tokens: 50000, percent: 50, contextWindow: 100000 }),
 		},
-		footerData: { getExtensionStatuses: () => new Map() },
+		footerData: { getExtensionStatuses: () => new Map(), getGitBranch: () => null },
 		theme: { name: "dark", fg: (color, text) => `<${color}:${text}>`, bold: (text) => text },
 	};
-	const [line] = module.namespace.renderFooter(h, 500);
+	const [, line] = module.namespace.renderFooter(h, 500);
 	assert.match(line, /<accent:\$><muted:0\.123>/);
 	// Between the cache-hit stat and the context-window segment.
 	assert.ok(line.indexOf("<accent:$>") > line.indexOf("<accent:CH>"));
-	assert.ok(line.indexOf("<accent:$>") < line.indexOf("<accent:50k>"));
+	assert.ok(line.indexOf("<accent:$>") < line.indexOf("<muted:50k>"));
 	// Subscription-backed models never report a cost; nothing stands in for one.
 	module.sessionStats.totals.cost = 0;
-	const [noCost] = module.namespace.renderFooter(h, 500);
+	const [, noCost] = module.namespace.renderFooter(h, 500);
 	assert.doesNotMatch(noCost, /\$/);
 });
 
@@ -693,19 +922,19 @@ test("the Z.AI monthly tool quota is marked with a hammer in the label color", a
 			tokenSpeed: null,
 		},
 		ctx: {
-			sessionManager: { getEntries: () => [] },
+			sessionManager: { getEntries: () => [], getCwd: () => "/test" },
 			getContextUsage: () => ({ tokens: 50000, percent: 50, contextWindow: 100000 }),
 		},
-		footerData: { getExtensionStatuses: () => new Map() },
+		footerData: { getExtensionStatuses: () => new Map(), getGitBranch: () => null },
 		theme: { name: "dark", fg: (color, text) => `<${color}:${text}>`, bold: (text) => text },
 	};
-	const [line] = module.namespace.renderFooter(h, 500);
+	const [, line] = module.namespace.renderFooter(h, 500);
 	assert.match(line, /<dim:2h> <muted:40%>/);
 	assert.match(line, /<dim:6d> <muted:60%>/);
 	// nf-fa-hammer (U+EEFF) shares the countdown-label color on both themes.
 	assert.match(line, /<dim:\uEEFF> <muted:97%>/);
 	h.theme = { name: "light", fg: (color, text) => `<${color}:${text}>`, bold: (text) => text };
-	const [light] = module.namespace.renderFooter(h, 500);
+	const [, light] = module.namespace.renderFooter(h, 500);
 	assert.match(light, /<accent:2h> <muted:40%>/);
 	assert.match(light, /<accent:\uEEFF> <muted:97%>/);
 });
@@ -724,7 +953,7 @@ test("system appearance overrides missing or stale COLORFGBG and follows live th
 			rateWindows: [{ ...window("tokens", 25), hasReset: true, resetSec: 3700 }],
 		},
 		ctx: {
-			sessionManager: {},
+			sessionManager: { getCwd: () => "/test" },
 			getContextUsage: () => ({ tokens: 80000, percent: 80, contextWindow: 100000 }),
 		},
 		theme: { name: "system", appearance: "light", fg: (color, text) => `<${color}:${text}>` },
@@ -732,18 +961,21 @@ test("system appearance overrides missing or stale COLORFGBG and follows live th
 	for (const env of [undefined, "0;0"]) {
 		if (env === undefined) delete process.env.COLORFGBG;
 		else process.env.COLORFGBG = env;
-		const [light] = module.namespace.renderFooter(h, 1000);
+		const light = module.namespace.renderFooter(h, 1000).join("\n");
+		// Built-in light's warning falls below 4.5:1 on white; use its darker theme token.
 		assert.match(light, /<accent:1h> <syntaxFunction:25%>/);
-		assert.ok(light.includes("\x1b[38;2;194;65;12m80k"));
-		assert.ok(light.includes("\x1b[38;2;154;154;154m500"));
+		assert.match(light, /<syntaxFunction:80k>/);
+		assert.match(light, /<dim:500>/);
+		assert.ok(!light.includes("\x1b["), "colors are delegated entirely to the theme");
 	}
 	process.env.COLORFGBG = "0;15";
 	h.theme.appearance = "dark";
 	h.theme.name = "custom-light-name"; // Explicit appearance even wins over the name.
-	const [dark] = module.namespace.renderFooter(h, 1000);
+	const dark = module.namespace.renderFooter(h, 1000).join("\n");
 	assert.match(dark, /<dim:1h> <warning:25%>/);
 	assert.match(dark, /<warning:80k>/);
-	assert.ok(dark.includes("\x1b[38;2;144;144;144m500"));
+	assert.match(dark, /<dim:500>/);
+	assert.ok(!dark.includes("\x1b["));
 });
 
 test("OpenAI ChatGPT shows neither API headers nor a Codex poll", async () => {
@@ -835,7 +1067,7 @@ test("ChatGPT rendering links to usage without a fake balance or reset countdown
 			rateWindows: [],
 		},
 	};
-	const render = () => module.namespace.renderFooter(h, 1000)[0];
+	const render = () => module.namespace.renderFooter(h, 1000)[1];
 	assert.ok(render().includes(CHATGPT_USAGE_URL));
 	assert.ok(render().includes("ChatGPT"));
 	assert.ok(!render().includes("ChatGPT limit"));

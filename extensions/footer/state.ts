@@ -10,7 +10,10 @@ export interface FooterState {
 	thinkingLevel: string;
 	rateWindows: RateWindow[];
 	providerQuotas: Map<string, ProviderQuotaSnapshot>;
-	tokenSpeed: number | null; // output tokens / second of the last measurable reply without tool calls
+	tokenSpeed: number | null; // live estimate or finalized output tokens / second
+	tokenSpeedEstimated: boolean;
+	/** Incremental live estimate; never includes CLI output or tool results. */
+	streamEstimate: { tokens: number; startedAt: number; renderedAt: number; lastDeltaAt: number } | null;
 	/** First streamed text or thinking delta. */
 	streamFirstDelta: number | null;
 	/** First streamed text delta, i.e. after any reasoning. */
@@ -18,6 +21,7 @@ export interface FooterState {
 	streamLastModelUpdate: number | null;
 	/** Whole-message usage cannot separate tool arguments from reply text. */
 	streamHasToolCall: boolean;
+	projectVersion: string | undefined;
 	gitAdded: number;
 	gitRemoved: number;
 	gitDirty: boolean;
@@ -41,10 +45,13 @@ export function createState(): FooterState {
 		rateWindows: [],
 		providerQuotas,
 		tokenSpeed: null,
+		tokenSpeedEstimated: false,
+		streamEstimate: null,
 		streamFirstDelta: null,
 		streamFirstAnswerDelta: null,
 		streamLastModelUpdate: null,
 		streamHasToolCall: false,
+		projectVersion: undefined,
 		gitAdded: 0,
 		gitRemoved: 0,
 		gitDirty: false,

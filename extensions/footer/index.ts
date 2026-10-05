@@ -1,21 +1,21 @@
 /**
  * Status Footer Extension
  *
- * Redesigned single-line footer.
+ * Two-line footer, entirely below the editor.
  *
- * Above the editor (right-aligned):
- *   cwd  branch · +m -n (when dirty)
- * Footer left:
- *   provider/model effort · quota windows · t/s
- * Footer right:
- *   ↑input/cache ↓output CH% $cost · context/window
+ * First line left (extension statuses on the right):
+ *   cwd  branch · version · +m -n (when dirty)
+ * Second line left:
+ *   ↑input/cache ↓output CH% · $cost · context/window · t/s
+ * Second line right:
+ *   provider/model effort · quota windows
  *
  * The session cost keeps pi's own footer format ("$0.123", colored $) and
  * appears only when the model reports cost rates; subscriptions stay marked by
  * their quota windows instead of a "$0.000 (sub)" placeholder. Cached input
- * tokens are shown after the input total in a faint light gray; the current
- * context usage (accent, with warning thresholds) and the dim context-window
- * total close the line.
+ * tokens are shown dim after the muted input total; the current
+ * context usage (muted, with warning thresholds) and the dim context-window
+ * total precede the output speed.
  *
  * Rate-limit windows (5h / weekly / total) come from provider-specific sources:
  * - OpenAI Codex subscription: official Codex App Server `account/rateLimits/read`
@@ -30,12 +30,14 @@
  * - Other providers: auto-detected response headers (`x-ratelimit-*`, etc.)
  *
  * Token speed covers only the streamed part of each assistant reply: time to
- * first token and tool execution are excluded (see measureTokenSpeed). Replies
- * containing tool calls are skipped: their usage mixes text and tool arguments.
+ * first token and tool execution are excluded (see measureTokenSpeed). Live
+ * estimates include text, thinking and tool arguments; only replies without
+ * tool calls can be finalized using reported usage.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readGitChanges } from "./git";
+import { readProjectVersion } from "./project";
 import { readProviderQuota, rememberProviderQuota } from "../quota/provider-quota";
 import {
 	COPILOT_PROVIDER,
@@ -52,9 +54,8 @@ import {
 	type RateWindow,
 } from "../quota/quotas";
 import { createState, type FooterState } from "./state";
-import { renderFooter, renderProjectLine, type FooterTheme } from "./render";
+import { renderFooter, type FooterTheme } from "./render";
 
-const PROJECT_WIDGET_KEY = "status-footer-project";
 // The refresh helpers below own the polling cadence; bypass the shared cache's
 // age check (in-flight reads are still coalesced) so it cannot skip every
 // other scheduled refresh.
@@ -92,6 +93,12 @@ function measureTokenSpeed(
 	// End at the last model delta, not at a delayed message_end callback.
 	const sec = (end - start) / 1000;
 	return sec > 0.05 ? tokens / sec : undefined;
+}
+
+/** Estimated tokens per second from the first chunk to `end`, under the same minimum window. */
+function estimateRate(estimate: NonNullable<FooterState["streamEstimate"]>, end: number): number | undefined {
+	const sec = (end - estimate.startedAt) / 1000;
+	return estimate.tokens > 0 && sec > 0.05 ? estimate.tokens / sec : undefined;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -237,7 +244,7 @@ export default function (pi: ExtensionAPI) {
 	// --- git working-tree changes -------------------------------------------
 
 	/**
-	 * Re-read the working tree's +/- counts. Called only when it may have changed:
+	 * Re-read the working tree's +/- counts and project version only when they may have changed:
 	 * session start, a branch switch, a tool that can write, the end of an agent
 	 * run, a submitted prompt (covers edits made outside Pi), and a new session
 	 * entry such as a `!` command's result (checked on the timer tick).
@@ -254,12 +261,19 @@ export default function (pi: ExtensionAPI) {
 		state.gitRefreshInFlight = true;
 		state.gitCheckedLeafId = ctx.sessionManager.getLeafId();
 		try {
+			// The manifest read takes milliseconds; show it without waiting for a slow git diff.
+			const versionRead = readProjectVersion(ctx.cwd).then((version) => {
+				if (H.state !== state) return;
+				state.projectVersion = version;
+				requestRender();
+			});
 			const changes = await readGitChanges(ctx.cwd);
 			if (H.state === state && changes) {
 				state.gitAdded = changes.added;
 				state.gitRemoved = changes.removed;
 				state.gitDirty = changes.dirty;
 			}
+			await versionRead;
 		} finally {
 			state.gitRefreshInFlight = false;
 			if (H.state === state) {
@@ -273,16 +287,6 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const mountFooter = (ctx: ExtensionContext) => {
-		// The public widget API owns placement; do not depend on TUI child ordering.
-		ctx.ui.setWidget(
-			PROJECT_WIDGET_KEY,
-			(_tui, theme) => ({
-				render: (width: number) => [renderProjectLine(H, width, theme as FooterTheme)],
-				invalidate() {},
-			}),
-			{ placement: "aboveEditor" },
-		);
-
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			H.tui = tui;
 			H.theme = theme;
@@ -421,6 +425,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	const resetStreamTiming = () => {
+		H.state.streamEstimate = null;
 		H.state.streamFirstDelta = null;
 		H.state.streamFirstAnswerDelta = null;
 		H.state.streamLastModelUpdate = null;
@@ -431,9 +436,38 @@ export default function (pi: ExtensionAPI) {
 		if (event.message?.role === "assistant") resetStreamTiming();
 	});
 
+	const updateLiveSpeed = (delta: string, now: number) => {
+		// Only a mounted TUI footer shows the estimate; print/json/rpc runs skip the work.
+		if (!delta || !H.timer) return;
+		const estimate = H.state.streamEstimate;
+		if (!estimate) {
+			// The first chunk only starts the clock: its tokens were generated
+			// before timing began, so counting them would overstate early samples.
+			H.state.streamEstimate = { tokens: 0, startedAt: now, renderedAt: now, lastDeltaAt: now };
+			return;
+		}
+		// A language-aware heuristic, not a tokenizer: roughly four ASCII
+		// characters per token, one for non-ASCII. Never count chunks as tokens.
+		for (const char of delta) estimate.tokens += char.charCodeAt(0) < 128 ? 0.25 : 1;
+		estimate.lastDeltaAt = now;
+		// Event-driven refresh, at most four times a second; no polling timer.
+		if (now - estimate.renderedAt < 250) return;
+		const rate = estimateRate(estimate, now);
+		if (rate === undefined) return;
+		H.state.tokenSpeed = rate;
+		H.state.tokenSpeedEstimated = true;
+		estimate.renderedAt = now;
+		requestRender();
+	};
+
 	pi.on("message_update", (event) => {
 		if (event.message?.role !== "assistant") return;
-		const kind = event.assistantMessageEvent?.type;
+		const deltaEvent = event.assistantMessageEvent;
+		const kind = deltaEvent?.type;
+		const now = performance.now();
+		if (kind === "text_delta" || kind === "thinking_delta" || kind === "toolcall_delta") {
+			updateLiveSpeed(deltaEvent.delta ?? "", now);
+		}
 		// Even a tool-call start without argument deltas disqualifies this reply
 		// (e.g. an aborted call, or a provider that delivers complete arguments).
 		if (kind === "toolcall_start" || kind === "toolcall_delta" || kind === "toolcall_end") {
@@ -444,7 +478,6 @@ export default function (pi: ExtensionAPI) {
 		// well after the last token — an aborted reply would otherwise count its
 		// idle stall as generation time and understate t/s.
 		if (kind !== "text_delta" && kind !== "thinking_delta") return;
-		const now = performance.now();
 		H.state.streamFirstDelta ??= now;
 		if (kind !== "thinking_delta") H.state.streamFirstAnswerDelta ??= now;
 		H.state.streamLastModelUpdate = now;
@@ -482,11 +515,20 @@ export default function (pi: ExtensionAPI) {
 
 		// Providers report whole-message output usage, not separate counts for
 		// text and tool arguments. Timing only the text would still include tool
-		// tokens in the numerator, so skip mixed replies rather than guess.
+		// tokens in the numerator, so mixed replies keep their marked live estimate.
 		const hasToolCall = H.state.streamHasToolCall || msg.content?.some((block) => block.type === "toolCall");
-		if (!hasToolCall) {
-			const speed = measureTokenSpeed(H.state, msg.usage);
-			if (speed !== undefined) H.state.tokenSpeed = speed;
+		const measured = hasToolCall ? undefined : measureTokenSpeed(H.state, msg.usage);
+		if (measured !== undefined) {
+			H.state.tokenSpeed = measured;
+			H.state.tokenSpeedEstimated = false;
+		} else if (H.state.streamEstimate) {
+			// Flush the estimate through its last chunk: deltas after the final
+			// 250ms sample, or a reply too short to have been sampled at all.
+			const rate = estimateRate(H.state.streamEstimate, H.state.streamEstimate.lastDeltaAt);
+			if (rate !== undefined) {
+				H.state.tokenSpeed = rate;
+				H.state.tokenSpeedEstimated = true;
+			}
 		}
 		resetStreamTiming();
 		requestRender();

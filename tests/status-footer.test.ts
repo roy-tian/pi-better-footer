@@ -17,6 +17,7 @@ import { summarizeSessionUsage } from "../extensions/footer/session-stats.ts";
 import { readGitChanges } from "../extensions/footer/git.ts";
 import { createState } from "../extensions/footer/state.ts";
 import { renderFooter } from "../extensions/footer/render.ts";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 const at = Date.now();
@@ -287,10 +288,300 @@ test("ChatGPT usage hyperlinks fit real terminal widths and close before other f
 	state.currentQuotaKey = CHATGPT_QUOTA_KEY;
 	state.providerQuotas = new Map();
 	const holder = { state, ctx: undefined };
-	for (const width of [1, 8, 18, 32, 80]) {
-		const [line] = renderFooter(holder, width);
-		assert.ok(visibleWidth(line) <= width, `${width}: ${JSON.stringify(line)}`);
+	for (const width of [0, 1, 8, 18, 32, 80]) {
+		const lines = renderFooter(holder, width);
+		assert.equal(lines.length, 2);
+		for (const line of lines) assert.ok(visibleWidth(line) <= width, `${width}: ${JSON.stringify(line)}`);
+		assert.equal(lines[0], "", "no project context leaves the first row blank");
 	}
-	const [line] = renderFooter(holder, 80);
+	const [, line] = renderFooter(holder, 80);
 	assert.ok(line.includes("\x1b]8;;https://chatgpt.com/settings/usage\x1b\\ChatGPT\x1b]8;;\x1b\\"));
+});
+
+test("session segments match the requested order without dangling separators", () => {
+	const state = createState();
+	Object.assign(state, { currentModelProvider: "test", currentModelId: "model", tokenSpeed: 100 });
+	const entries = [
+		{
+			type: "message",
+			message: {
+				role: "assistant",
+				usage: {
+					input: 18000,
+					output: 1500,
+					cacheRead: 110000,
+					cost: { total: 0.06 },
+				},
+			},
+		},
+	];
+	const holder = {
+		state,
+		ctx: {
+			sessionManager: { getCwd: () => "/test", getEntries: () => entries },
+			getContextUsage: () => ({ tokens: 20000, percent: 2, contextWindow: 1000000 }),
+		} as unknown as ExtensionContext,
+	};
+	assert.match(
+		renderFooter(holder, 120)[1],
+		/^↑18k\/110k ↓1\.5k CH85\.9% · \$0\.060 · 20k\/1\.0M · 100t\/s {2,}test\/model$/,
+	);
+	entries[0].message.usage.cost.total = 0;
+	// A replaced session entry invalidates the append-only statistics cache.
+	entries[0] = { ...entries[0] };
+	assert.match(renderFooter(holder, 120)[1], /CH85\.9% · 20k\/1\.0M · 100t\/s/);
+	state.tokenSpeed = null;
+	assert.match(renderFooter(holder, 120)[1], /CH85\.9% · 20k\/1\.0M/);
+	holder.ctx.sessionManager.getEntries = () => [];
+	holder.ctx.getContextUsage = () => undefined;
+	assert.match(renderFooter(holder, 120)[1], /^\?\/\? {2,}test\/model$/);
+});
+
+test("input/cache and context/capacity share muted numerators and dim denominators", () => {
+	const state = createState();
+	state.tokenSpeed = 34;
+	const ctx = {
+		sessionManager: {
+			getCwd: () => "/test",
+			getEntries: () => [
+				{ type: "message", message: { role: "assistant", usage: { input: 26000, cacheRead: 53000 } } },
+			],
+		},
+		getContextUsage: () => ({ tokens: 26000, percent: 2.4, contextWindow: 1100000 }),
+	} as unknown as ExtensionContext;
+	for (const name of ["dark", "light", "custom-palette"]) {
+		const theme = { name, fg: (color: string, text: string) => `<${color}:${text}>`, bold: (text: string) => text };
+		const line = renderFooter({ state, ctx, theme }, 1000)[1];
+		assert.ok(line.includes("<accent:↑><muted:26k>/<dim:53k>"));
+		assert.ok(line.includes("<muted:26k>/<dim:1.1M>"));
+		assert.ok(line.includes("<muted:34><dim:t/s>"));
+	}
+});
+
+test("live token speed is marked as estimated with or without a theme", () => {
+	const state = createState();
+	Object.assign(state, { tokenSpeed: 42, tokenSpeedEstimated: true });
+	const holder = { state, ctx: undefined };
+	assert.ok(renderFooter(holder, 100)[1].includes("~42t/s"));
+	const theme = { fg: (color: string, text: string) => `<${color}:${text}>`, bold: (text: string) => text };
+	assert.ok(renderFooter({ ...holder, theme }, 500)[1].includes("<muted:~42><dim:t/s>"));
+	state.tokenSpeedEstimated = false;
+	assert.ok(renderFooter(holder, 100)[1].includes("42t/s"));
+	assert.ok(!renderFooter(holder, 100)[1].includes("~42"));
+});
+
+test("token speed uses three theme color bands while the unit stays dim", () => {
+	const state = createState();
+	const bands = [
+		{ values: [1, 34, 35, 49, 49.4], color: "muted" },
+		{ values: [49.5, 50, 100, 149, 149.4], color: "warning" },
+		{ values: [149.5, 150, 200, 1000], color: "error" },
+	];
+	for (const name of ["dark", "light"]) {
+		const theme = {
+			name,
+			fg: (color: string, text: string) => `<${color}:${text}>`,
+			bold: (text: string) => text,
+		};
+		for (const { values, color } of bands) {
+			const expected = color === "warning" && name === "light" ? "syntaxFunction" : color;
+			for (const value of values) {
+				for (const estimated of [false, true]) {
+					Object.assign(state, { tokenSpeed: value, tokenSpeedEstimated: estimated });
+					const line = renderFooter({ state, ctx: undefined, theme }, 500)[1];
+					assert.ok(line.includes(`<${expected}:${estimated ? "~" : ""}${Math.round(value)}><dim:t/s>`));
+				}
+			}
+		}
+	}
+});
+
+test("context usage is muted through 70 percent, then warning (darker on light themes) and error", () => {
+	const state = createState();
+	const theme = {
+		name: "dark",
+		fg: (color: string, text: string) => `<${color}:${text}>`,
+		bold: (text: string) => text,
+	};
+	for (const [percent, color] of [
+		[0, "muted"],
+		[1.3, "muted"],
+		[70, "muted"],
+		[70.1, "warning"],
+		[90, "warning"],
+		[90.1, "error"],
+		[100, "error"],
+	] as const) {
+		const ctx = {
+			sessionManager: { getCwd: () => "/test", getEntries: () => [] },
+			getContextUsage: () => ({ tokens: 14000, percent, contextWindow: 1100000 }),
+		} as unknown as ExtensionContext;
+		for (const name of ["dark", "light", "custom-palette"]) {
+			const line = renderFooter({ state, ctx, theme: { ...theme, name } }, 500)[1];
+			const expected = color === "warning" && name === "light" ? "syntaxFunction" : color;
+			assert.ok(line.includes(`<${expected}:14k>/<dim:1.1M>`));
+			assert.ok(!line.includes("\x1b["), "no hard-coded foreground colors");
+		}
+	}
+});
+
+test("Copilot credits share quota warning thresholds across themes", () => {
+	const state = createState();
+	state.currentModelProvider = "github-copilot";
+	for (const name of ["dark", "light", "custom-palette"]) {
+		const theme = {
+			name,
+			fg: (color: string, text: string) => `<${color}:${text}>`,
+			bold: (text: string) => text,
+		};
+		for (const [remaining, color] of [
+			[0, "error"],
+			[30, "error"],
+			[31, "warning"],
+			[90, "warning"],
+			[91, "muted"],
+			[300, "muted"],
+			[400, "muted"],
+		] as const) {
+			state.copilotCredits = `${remaining}/300`;
+			state.rateWindows = [
+				{ scope: "tokens", percent: (remaining / 300) * 100, hasReset: false, resetSec: 0, capturedAt: Date.now() },
+			];
+			const line = renderFooter({ state, ctx: undefined, theme }, 500)[1];
+			const expected = color === "warning" && name === "light" ? "syntaxFunction" : color;
+			assert.ok(line.includes(`<${expected}:${remaining}>/<dim:300>`));
+			assert.ok(line.includes(`<${expected}:${Math.round((remaining / 300) * 100)}%>`));
+			assert.ok(!line.includes("\x1b["));
+			assert.ok(renderFooter({ state, ctx: undefined }, 500)[1].includes(`${remaining}/300`));
+		}
+	}
+});
+
+test("token speed is dropped before quota windows when the line runs short", () => {
+	const state = createState();
+	const now = Date.now();
+	Object.assign(state, {
+		currentModelProvider: "openai-codex",
+		currentModelId: "gpt",
+		tokenSpeed: 42,
+		rateWindows: [
+			// Keep countdowns away from rounding boundaries while testing layout.
+			{ scope: "5h", percent: 80, hasReset: true, resetSec: 4 * 3600 + 1800, capturedAt: now },
+			{ scope: "7d", percent: 60, hasReset: true, resetSec: 4 * 86400 + 1800, capturedAt: now },
+		],
+	});
+	const entries = [
+		{ type: "message", message: { role: "assistant", usage: { input: 1200, output: 200, cacheRead: 500 } } },
+	];
+	const holder = {
+		state,
+		ctx: {
+			sessionManager: { getCwd: () => "/test", getEntries: () => entries },
+			getContextUsage: () => ({ tokens: 50000, percent: 50, contextWindow: 100000 }),
+		} as unknown as ExtensionContext,
+	};
+	const full = renderFooter(holder, 200)[1].replace(/ {2,}/, "  ");
+	assert.ok(full.includes("42t/s") && full.includes("4d 60%"), full);
+	// One column short of the full line: the speed goes, both quota windows stay.
+	const short = renderFooter(holder, visibleWidth(full) - 1)[1];
+	assert.ok(!short.includes("t/s"), short);
+	assert.ok(short.includes("4h 80%") && short.endsWith("4d 60%"), short);
+	assert.ok(short.includes("CH"), "session detail outlasts the speed too");
+});
+
+test("invalid Copilot credits never acquire an exhaustion color", () => {
+	const state = createState();
+	state.currentModelProvider = "github-copilot";
+	const theme = { fg: (color: string, text: string) => `<${color}:${text}>`, bold: (text: string) => text };
+	for (const credits of ["0/0", "1/0", "unknown", "?/300", "1/?", `${"9".repeat(310)}/300`, `0/${"9".repeat(310)}`]) {
+		state.copilotCredits = credits;
+		const line = renderFooter({ state, ctx: undefined, theme }, 1500)[1];
+		assert.ok(!line.includes("<error:"));
+		assert.ok(!line.includes("<warning:"));
+	}
+});
+
+test("context capacity stays visible with zero or unknown usage and follows model changes", () => {
+	const state = createState();
+	Object.assign(state, { currentModelProvider: "test", currentModelId: "model" });
+	const holder = {
+		state,
+		ctx: {
+			model: { contextWindow: 1000000 },
+			sessionManager: { getCwd: () => "/test", getEntries: () => [] },
+			getContextUsage: () => ({ tokens: 0, percent: 0, contextWindow: 1000000 }),
+		} as unknown as ExtensionContext,
+	};
+	assert.match(renderFooter(holder, 80)[1], /^0\/1\.0M {2,}test\/model$/);
+	// Compaction makes usage unknown, not zero; capacity still belongs on screen.
+	holder.ctx.getContextUsage = () => ({ tokens: null, percent: null, contextWindow: 1000000 });
+	assert.match(renderFooter(holder, 80)[1], /^\?\/1\.0M {2,}test\/model$/);
+	holder.ctx.getContextUsage = () => undefined;
+	assert.match(renderFooter(holder, 80)[1], /^\?\/1\.0M {2,}test\/model$/);
+	if (holder.ctx.model) holder.ctx.model.contextWindow = 200000;
+	assert.match(renderFooter(holder, 80)[1], /^\?\/200k {2,}test\/model$/);
+	// The reported window takes precedence over the model fallback.
+	holder.ctx.getContextUsage = () => ({ tokens: 0, percent: 0, contextWindow: 128000 });
+	assert.match(renderFooter(holder, 80)[1], /^0\/128k {2,}test\/model$/);
+	for (const width of [0, 1, 8, 18, 32]) {
+		const line = renderFooter(holder, width)[1];
+		assert.ok(visibleWidth(line) <= width);
+		if (width >= 18) assert.ok(line.startsWith("0/128k"));
+	}
+});
+
+test("two footer rows keep Git above left-aligned usage and right-aligned quotas", () => {
+	const state = createState();
+	Object.assign(state, {
+		currentModelProvider: "zai",
+		currentModelId: "glm",
+		tokenSpeed: 20,
+		gitDirty: true,
+		projectVersion: "v0.1.2",
+		gitAdded: 12,
+		gitRemoved: 3,
+		rateWindows: [{ scope: "tokens", percent: 80, hasReset: false, resetSec: 0, capturedAt: Date.now() }],
+	});
+	const entries = [{ type: "message", message: { role: "assistant", usage: { input: 1200, output: 200 } } }];
+	let cwd = "/project";
+	let branch = "main";
+	const holder = {
+		state,
+		ctx: {
+			sessionManager: { getCwd: () => cwd, getEntries: () => entries },
+			getContextUsage: () => ({ tokens: 50000, percent: 50, contextWindow: 100000 }),
+		} as unknown as ExtensionContext,
+		footerData: { getGitBranch: () => branch, getExtensionStatuses: () => new Map([["test", "ready"]]) },
+	};
+	const [project, usage] = renderFooter(holder, 100);
+	assert.ok(project.startsWith("/project  main · v0.1.2 · +12 -3"));
+	assert.ok(project.endsWith("ready"));
+	const versionTheme = {
+		fg: (color: string, text: string) => `<${color}:${text}>`,
+		bold: (text: string) => text,
+	};
+	assert.ok(renderFooter({ ...holder, theme: versionTheme }, 500)[0].includes("<dim:v><muted:0.1.2>"));
+	assert.equal(visibleWidth(usage), 100, "model and quota are right-aligned");
+	assert.ok(usage.startsWith("↑1.2k ↓200 · 50k/100k · 20t/s"));
+	assert.ok(usage.endsWith("zai/glm · 80%"));
+	assert.ok(!project.includes("↑"));
+	assert.ok(!usage.includes("/project"));
+	state.gitDirty = false;
+	branch = "next";
+	assert.ok(renderFooter(holder, 100)[0].startsWith("/project  next · v0.1.2"));
+	state.projectVersion = undefined;
+	assert.ok(!renderFooter(holder, 100)[0].includes("v0.1.2"));
+
+	cwd = "/项目/一个很长的工作目录";
+	branch = "功能/新布局";
+	const theme = { fg: (_color: string, text: string) => `\x1b[36m${text}\x1b[39m`, bold: (text: string) => text };
+	for (const width of [0, 1, 2, 8, 18, 32, 80, 120]) {
+		const lines = renderFooter({ ...holder, theme }, width);
+		assert.equal(lines.length, 2);
+		for (const line of lines) {
+			assert.ok(visibleWidth(line) <= width, `${width}: ${JSON.stringify(line)}`);
+			assert.ok(!line.includes("\n"));
+		}
+		if (width > 0) assert.ok(lines[0].includes("/"), "keep the project path left-aligned even at one column");
+	}
 });

@@ -5,33 +5,37 @@
       text { font-family: "JBM", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 16.667px; white-space: pre; }
     </style>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#45474d"/>
-      <stop offset="0.25" stop-color="#4a4442"/>
-      <stop offset="0.5" stop-color="#47403e"/>
-      <stop offset="0.75" stop-color="#434245"/>
-      <stop offset="1" stop-color="#46403d"/>
+      <stop offset="0" stop-color="#45464a"/>
+      <stop offset="0.25" stop-color="#4a4b4e"/>
+      <stop offset="0.5" stop-color="#4c4d50"/>
+      <stop offset="0.75" stop-color="#4e4e51"/>
+      <stop offset="1" stop-color="#505154"/>
     </linearGradient>
   </defs>
 
   <rect width="1161" height="125" fill="url(#bg)"/>
 
-  <!-- top-right: cwd · branch · diff -->
-  <g>
-    <text x="726" y="21.5" fill="#767676">~/code/pi-better-footer</text>
-    <text x="986" y="21.5" fill="#5f8787">master</text>
-    <text x="1056" y="21.5" fill="#767676">·</text>
-    <text x="1076" y="21.5" fill="#5f875f">+119</text>
-    <text x="1126" y="21.5" fill="#af5f5f">-30</text>
-    <g fill="none" stroke="#5f8787" stroke-width="2.6" stroke-linecap="butt" stroke-linejoin="round">
+  <!-- footer first line left: cwd · branch · version · diff -->
+  <g transform="translate(-720 62)">
+    <text x="726" y="21.5" fill="#878787">~/code/pi-better-footer</text>
+    <text x="986" y="21.5" fill="#af87d7">master</text>
+    <text x="1056" y="21.5" fill="#878787">·</text>
+    <text x="1076" y="21.5" fill="#878787">v</text>
+    <text x="1086" y="21.5" fill="#afafaf">0.1.2</text>
+    <text x="1146" y="21.5" fill="#878787">·</text>
+    <text x="1166" y="21.5" fill="#5faf87">+363</text>
+    <text x="1216" y="21.5" fill="#d78787">-96</text>
+    <g fill="none" stroke="#af87d7" stroke-width="2.6" stroke-linecap="butt" stroke-linejoin="round">
       <path d="M968.5 6V15.5"/>
       <path d="M968.5 27V19.5L973.5 15.5V11"/>
     </g>
-    <circle cx="973.5" cy="10.6" r="1.9" fill="#5f8787"/>
+    <circle cx="973.5" cy="10.6" r="1.9" fill="#af87d7"/>
   </g>
 
+  <g transform="translate(0 -30)">
   <!-- editor top border with Working label -->
-  <rect x="6" y="38" width="20" height="2" fill="#af005f"/>
-  <g fill="#af005f">
+  <rect x="6" y="38" width="20" height="2" fill="#8787d7"/>
+  <g fill="#8787d7">
     <circle cx="40" cy="33.6" r="1.9" opacity="1"><animate attributeName="opacity" values="1;1;1;1;1;1;0;0;0;0" dur="0.8s" calcMode="discrete" repeatCount="indefinite"/></circle>
     <circle cx="40" cy="38.1" r="1.9" opacity="1"><animate attributeName="opacity" values="1;1;1;1;0;0;0;0;0;1" dur="0.8s" calcMode="discrete" repeatCount="indefinite"/></circle>
     <circle cx="40" cy="42.6" r="1.9" opacity="1"><animate attributeName="opacity" values="1;1;1;0;0;0;0;1;1;1" dur="0.8s" calcMode="discrete" repeatCount="indefinite"/></circle>
@@ -39,46 +43,53 @@
     <circle cx="44.9" cy="38.1" r="1.9" opacity="0"><animate attributeName="opacity" values="0;0;0;0;1;1;1;1;1;0" dur="0.8s" calcMode="discrete" repeatCount="indefinite"/></circle>
     <circle cx="44.9" cy="42.6" r="1.9" opacity="1"><animate attributeName="opacity" values="1;0;0;0;0;1;1;1;1;1" dur="0.8s" calcMode="discrete" repeatCount="indefinite"/></circle>
   </g>
-  <text x="56" y="44.5" fill="#af005f">Working</text>
-  <rect x="136" y="38" width="1020" height="2" fill="#af005f"/>
+  <text x="56" y="44.5" fill="#8787d7">Working</text>
+  <rect x="136" y="38" width="1020" height="2" fill="#8787d7"/>
 
   <!-- cursor -->
   <rect x="6" y="50" width="10" height="23" fill="#dcdfe4"/>
 
   <!-- editor bottom border -->
-  <rect x="6" y="84" width="1150" height="2" fill="#af005f"/>
+  <rect x="6" y="84" width="1150" height="2" fill="#8787d7"/>
 
-  <!-- footer -->
-  <g>
-    <text x="6" y="113.5" fill="#5f8787">zai-coding-cn</text>
+  </g>
+
+  <!-- footer second line right: model · quota -->
+  <g transform="translate(640 -6)">
+    <text x="6" y="113.5" fill="#af87d7">zai-coding-cn</text>
     <text x="136" y="113.5" fill="#dcdfe4">/</text>
-    <text x="146" y="113.5" fill="#767676">glm-5.3</text>
-    <text x="226" y="113.5" fill="#5f8787">max</text>
-    <text x="266" y="113.5" fill="#767676">·</text>
-    <text x="286" y="113.5" fill="#5f8787">1h</text>
-    <text x="316" y="113.5" fill="#6c6c6c">98%</text>
-    <text x="356" y="113.5" fill="#767676">·</text>
-    <text x="376" y="113.5" fill="#5f8787">3d</text>
-    <text x="406" y="113.5" fill="#6c6c6c">99%</text>
-    <text x="446" y="113.5" fill="#767676">·</text>
-    <path fill="#5f8787" transform="translate(471.5 107.5) scale(0.005859 -0.005859) translate(-1024 -614)" d="M1469 680Q1393 666 1317.5 689.5Q1242 713 1185 770L1050 906Q1010 945 988.0 997.5Q966 1050 966 1106V1150L683 1304Q652 1322 653 1356Q655 1391 687 1406L855 1480Q952 1524 1063 1524H1128Q1227 1524 1317.0 1488.5Q1407 1453 1478 1386L1637 1236Q1701 1176 1725.0 1094.0Q1749 1012 1731 930L1787 874L1816 902Q1842 927 1876.5 927.0Q1911 927 1936 902L2022 818Q2048 792 2048.0 756.0Q2048 720 2022 696L1709 384Q1684 358 1648.5 358.0Q1613 358 1588 384L1503 468Q1478 494 1478.0 529.0Q1478 564 1503 588L1531 618ZM97 184 927 874Q953 841 969 824L1105 690Q1139 656 1172 634L479 -198Q440 -245 385.5 -270.5Q331 -296 271 -296Q159 -296 79.5 -216.0Q0 -136 0 -24Q0 36 25.5 90.5Q51 145 97 184Z"/>
-    <text x="486" y="113.5" fill="#6c6c6c">97%</text>
-    <text x="526" y="113.5" fill="#767676">·</text>
-    <text x="546" y="113.5" fill="#5f8787">97</text>
-    <text x="566" y="113.5" fill="#767676">t/s</text>
-    <text x="756" y="113.5" fill="#5f8787">↑</text>
-    <text x="766" y="113.5" fill="#6c6c6c">95k</text>
-    <text x="796" y="113.5" fill="#dcdfe4">/</text>
-    <text x="806" y="113.5" fill="#9e9e9e">3.3M</text>
-    <text x="856" y="113.5" fill="#5f8787">↓</text>
-    <text x="866" y="113.5" fill="#6c6c6c">29k</text>
-    <text x="906" y="113.5" fill="#5f8787">CH</text>
-    <text x="926" y="113.5" fill="#6c6c6c">99.7%</text>
-    <text x="986" y="113.5" fill="#5f8787">$</text>
-    <text x="996" y="113.5" fill="#6c6c6c">0.153</text>
-    <text x="1056" y="113.5" fill="#767676">·</text>
-    <text x="1076" y="113.5" fill="#5f8787">73k</text>
-    <text x="1106" y="113.5" fill="#dcdfe4">/</text>
-    <text x="1116" y="113.5" fill="#767676">1.0M</text>
+    <text x="146" y="113.5" fill="#878787">glm-5.3</text>
+    <text x="226" y="113.5" fill="#af87d7">max</text>
+    <text x="266" y="113.5" fill="#878787">·</text>
+    <text x="286" y="113.5" fill="#af87d7">1h</text>
+    <text x="316" y="113.5" fill="#afafaf">98%</text>
+    <text x="356" y="113.5" fill="#878787">·</text>
+    <text x="376" y="113.5" fill="#af87d7">3d</text>
+    <text x="406" y="113.5" fill="#afafaf">99%</text>
+    <text x="446" y="113.5" fill="#878787">·</text>
+    <path fill="#af87d7" transform="translate(471.5 107.5) scale(0.005859 -0.005859) translate(-1024 -614)" d="M1469 680Q1393 666 1317.5 689.5Q1242 713 1185 770L1050 906Q1010 945 988.0 997.5Q966 1050 966 1106V1150L683 1304Q652 1322 653 1356Q655 1391 687 1406L855 1480Q952 1524 1063 1524H1128Q1227 1524 1317.0 1488.5Q1407 1453 1478 1386L1637 1236Q1701 1176 1725.0 1094.0Q1749 1012 1731 930L1787 874L1816 902Q1842 927 1876.5 927.0Q1911 927 1936 902L2022 818Q2048 792 2048.0 756.0Q2048 720 2022 696L1709 384Q1684 358 1648.5 358.0Q1613 358 1588 384L1503 468Q1478 494 1478.0 529.0Q1478 564 1503 588L1531 618ZM97 184 927 874Q953 841 969 824L1105 690Q1139 656 1172 634L479 -198Q440 -245 385.5 -270.5Q331 -296 271 -296Q159 -296 79.5 -216.0Q0 -136 0 -24Q0 36 25.5 90.5Q51 145 97 184Z"/>
+    <text x="486" y="113.5" fill="#afafaf">97%</text>
+  </g>
+
+  <!-- footer second line left: session usage · cost · context · speed -->
+  <g transform="translate(0 -6)">
+    <text x="6" y="113.5" fill="#af87d7">↑</text>
+    <text x="16" y="113.5" fill="#afafaf">18k</text>
+    <text x="46" y="113.5" fill="#dcdfe4">/</text>
+    <text x="56" y="113.5" fill="#878787">110k</text>
+    <text x="106" y="113.5" fill="#af87d7">↓</text>
+    <text x="116" y="113.5" fill="#afafaf">1.5k</text>
+    <text x="166" y="113.5" fill="#af87d7">CH</text>
+    <text x="186" y="113.5" fill="#afafaf">99.3%</text>
+    <text x="246" y="113.5" fill="#878787">·</text>
+    <text x="266" y="113.5" fill="#af87d7">$</text>
+    <text x="276" y="113.5" fill="#afafaf">0.060</text>
+    <text x="336" y="113.5" fill="#878787">·</text>
+    <text x="356" y="113.5" fill="#afafaf">20k</text>
+    <text x="386" y="113.5" fill="#dcdfe4">/</text>
+    <text x="396" y="113.5" fill="#878787">1.0M</text>
+    <text x="446" y="113.5" fill="#878787">·</text>
+    <text x="466" y="113.5" fill="#d7af5f">100</text>
+    <text x="496" y="113.5" fill="#878787">t/s</text>
   </g>
 </svg>

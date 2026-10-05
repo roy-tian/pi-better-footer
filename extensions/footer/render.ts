@@ -11,7 +11,6 @@ export interface FooterTheme {
 	readonly appearance?: "dark" | "light";
 	fg(color: string, text: string): string;
 	bold(text: string): string;
-	getColorMode?(): "truecolor" | "256color";
 }
 
 function isLightFooterTheme(theme: FooterTheme | undefined): boolean {
@@ -23,24 +22,13 @@ function isLightFooterTheme(theme: FooterTheme | undefined): boolean {
 	return Number.isFinite(background) && background >= 7;
 }
 
-/** Use a darker theme token for quota warnings on light themes. */
+/**
+ * Warning colour for quota, context and speed. Built-in light's `warning`
+ * (#9a7326) falls below 4.5:1 on white, so light themes use the darker
+ * `syntaxFunction` token (#795E26, 6.1:1) instead of a hard-coded RGB value.
+ */
 function footerWarningColor(theme: FooterTheme | undefined): string {
 	return isLightFooterTheme(theme) ? "syntaxFunction" : "warning";
-}
-
-/** SGR foreground colour with a truecolor RGB value and an xterm-256 fallback. */
-function sgrColor(theme: FooterTheme, rgb: readonly [number, number, number], xterm: number): string {
-	if (theme.getColorMode?.() === "256color") return `\x1b[38;5;${xterm}m`;
-	return `\x1b[38;2;${rgb[0]};${rgb[1]};${rgb[2]}m`;
-}
-
-/** High-contrast orange specifically for context warnings on light themes. */
-function styleContextWarning(theme: FooterTheme | undefined, text: string): string {
-	if (!theme) return text;
-	if (!isLightFooterTheme(theme)) return theme.fg("warning", text);
-	// Truecolor: orange-700 (#c2410c), 5.18:1 against white.
-	// 256-color fallback: xterm 130 (#af5f00), 4.71:1 against white.
-	return `${sgrColor(theme, [194, 65, 12], 130)}${text}\x1b[39m`;
 }
 
 /**
@@ -54,38 +42,29 @@ function styleResetLabel(theme: FooterTheme | undefined, text: string): string {
 	return isLightFooterTheme(theme) ? theme.fg("accent", text) : theme.fg("dim", text);
 }
 
-/**
- * Throughput ("18t/s"): the number and the unit are coloured apart, mirroring
- * the provider/model split (value in accent, qualifier in dim) rather than a
- * single dedicated colour, so the segment reads like the rest of the band.
- */
-function styleTokenSpeed(theme: FooterTheme | undefined, value: number): string {
-	const speed = `${value}t/s`;
-	if (!theme) return speed;
-	return `${theme.fg("accent", `${value}`)}${theme.fg("dim", "t/s")}`;
+/** Throughput uses theme muted → warning → error by displayed speed; the unit stays dim. */
+function styleTokenSpeed(theme: FooterTheme | undefined, value: number, estimated: boolean): string {
+	const label = `${estimated ? "~" : ""}${value}`;
+	if (!theme) return `${label}t/s`;
+	const color = value < 50 ? "muted" : value < 150 ? footerWarningColor(theme) : "error";
+	return `${theme.fg(color, label)}${theme.fg("dim", "t/s")}`;
 }
 
 function styleCopilotCredits(theme: FooterTheme | undefined, credits: string): string {
 	const match = /^(\d+)\/(\d+)$/.exec(credits);
 	if (!match || !theme) return credits;
-	return `${theme.fg("accent", match[1])}/${theme.fg("dim", match[2])}`;
+	const remaining = Number(match[1]);
+	const total = Number(match[2]);
+	// Invalid or unknown capacity must not masquerade as an exhausted quota.
+	const value =
+		Number.isFinite(remaining) && Number.isFinite(total) && total > 0
+			? pctColor(theme, (remaining / total) * 100, match[1])
+			: theme.fg("muted", match[1]);
+	return `${value}/${theme.fg("dim", match[2])}`;
 }
 
 function styleSessionStat(theme: FooterTheme | undefined, text: string): string {
 	return theme ? theme.fg("muted", text) : text;
-}
-
-/**
- * Cached input total ("1.2M" in "↑62k/1.2M"): a lighter gray than the muted
- * session numbers, tuned one step fainter after user feedback. Built-in themes
- * have no slot between "muted" (#808 dark / #6c light) and "text", so the
- * shade is pinned directly: #909090 on dark (brighter than muted, fainter than
- * the previous #999), #9a9a9a on light, with xterm-256 fallbacks.
- */
-function styleCachedTokens(theme: FooterTheme | undefined, text: string): string {
-	if (!theme) return text;
-	const light = isLightFooterTheme(theme);
-	return `${sgrColor(theme, light ? [154, 154, 154] : [144, 144, 144], light ? 247 : 245)}${text}\x1b[39m`;
 }
 
 /** pi's compact token formatter for footer session statistics. */
@@ -138,37 +117,37 @@ function joinLR(width: number, left: string, right: string, minGap = 1): string 
 }
 
 /**
- * Fit the single-line footer. Model information stays left-aligned and session
- * statistics stay right-aligned. On narrow terminals, optional model segments
- * are removed before compacting session statistics.
+ * Fit session usage on the left and model/quota information on the right.
+ * Narrowing drops the token speed first, then quota windows, then session
+ * detail: quota is the footer's main job, the speed only a reading.
  */
-function fitFooterLine(
+function fitSessionLine(
 	width: number,
+	sessionVariants: string[],
+	speed: string | undefined,
 	modelSegments: string[],
 	sep: string,
-	status: string,
-	sessionVariants: string[],
-	minGap = 2,
 ): string {
+	const minGap = 2;
 	const minModelSegments = Math.min(2, modelSegments.length);
+	const fits = (left: string, right: string) => visibleWidth(left) + minGap + visibleWidth(right) <= width;
 	for (const session of sessionVariants) {
+		const allModel = modelSegments.join(sep);
+		const withSpeed = speed ? `${session}${sep}${speed}` : undefined;
+		if (withSpeed && fits(withSpeed, allModel)) return joinLR(width, withSpeed, allModel, minGap);
 		for (let n = modelSegments.length; n >= minModelSegments; n--) {
-			for (const suffix of status ? [`${sep}${status}`, ""] : [""]) {
-				const left = `${modelSegments.slice(0, n).join(sep)}${suffix}`;
-				if (visibleWidth(left) + minGap + visibleWidth(session) <= width) {
-					return joinLR(width, left, session, minGap);
-				}
-			}
+			const right = modelSegments.slice(0, n).join(sep);
+			if (fits(session, right)) return joinLR(width, session, right, minGap);
 		}
 	}
 
+	// The context-window segment is always present, so the last variant is never empty.
 	const essential = modelSegments.slice(0, minModelSegments).join(sep);
-	const session = sessionVariants.at(-1) ?? "";
-	const maxSessionWidth = Math.max(0, Math.floor(width * 0.45));
-	const fittedSession = truncateToWidth(session, maxSessionWidth, "");
-	const leftWidth = Math.max(0, width - visibleWidth(fittedSession) - minGap);
-	const fittedLeft = truncateToWidth(essential, leftWidth, "");
-	return joinLR(width, fittedLeft, fittedSession, minGap);
+	const left = sessionVariants.at(-1) ?? "";
+	const right = truncateToWidth(essential, Math.max(0, Math.floor(width * 0.45)), "");
+	const leftWidth = Math.max(0, width - visibleWidth(right) - minGap);
+	if (leftWidth === 0) return truncateToWidth(left, width, "");
+	return joinLR(width, truncateToWidth(left, leftWidth, ""), right, minGap);
 }
 
 // ---------------------------------------------------------------------------
@@ -197,12 +176,10 @@ function renderProjectText(H: FooterRenderHandle, width: number, theme: FooterTh
 	const gitChanges = H.state.gitDirty
 		? ` ${dim("·")} ${fg("success", `+${H.state.gitAdded}`)} ${fg("error", `-${H.state.gitRemoved}`)}`
 		: "";
-	return truncateToWidth(`${projectRef}${gitChanges}`, width, "");
-}
-
-export function renderProjectLine(H: FooterRenderHandle, width: number, theme: FooterTheme | undefined): string {
-	const fitted = renderProjectText(H, width, theme);
-	return " ".repeat(Math.max(0, width - visibleWidth(fitted))) + fitted;
+	const version = H.state.projectVersion
+		? ` ${dim("·")} ${dim("v")}${fg("muted", H.state.projectVersion.slice(1))}`
+		: "";
+	return truncateToWidth(`${projectRef}${version}${gitChanges}`, width, "");
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +199,7 @@ export function renderFooter(H: FooterRenderHandle & { theme?: FooterTheme }, wi
 	const dim = (t: string) => fg("dim", t);
 	const sep = ` ${dim("·")} `;
 
-	// -- Left: model information --------------------------------------------
+	// -- Second line right: model and subscription information ---------------
 	const modelSegments: string[] = [];
 	// Provider and model share a compact "provider/model" segment, distinguished
 	// by color instead of the looser " · " separator used between other segments.
@@ -246,7 +223,9 @@ export function renderFooter(H: FooterRenderHandle & { theme?: FooterTheme }, wi
 	}
 
 	const speedSegment =
-		state.tokenSpeed != null && state.tokenSpeed > 0 ? styleTokenSpeed(theme, Math.round(state.tokenSpeed)) : undefined;
+		state.tokenSpeed != null && state.tokenSpeed > 0
+			? styleTokenSpeed(theme, Math.round(state.tokenSpeed), state.tokenSpeedEstimated)
+			: undefined;
 
 	const activeWindows = state.rateWindows.filter(
 		(w) => !w.hasReset || w.resetSec - (Date.now() - w.capturedAt) / 1000 > 0,
@@ -265,11 +244,7 @@ export function renderFooter(H: FooterRenderHandle & { theme?: FooterTheme }, wi
 		modelSegments.push(label ? `${label} ${pct}` : pct);
 	}
 
-	// Token speed sits at the right end of the model line, after the quota
-	// windows, rather than leading the session statistics on the right.
-	if (speedSegment) modelSegments.push(speedSegment);
-
-	// Extension statuses follow the model information on the footer's left.
+	// Extension statuses occupy the otherwise free right side of the project line.
 	let status = "";
 	const statuses = footerData?.getExtensionStatuses();
 	if (statuses && statuses.size > 0) {
@@ -282,70 +257,55 @@ export function renderFooter(H: FooterRenderHandle & { theme?: FooterTheme }, wi
 		);
 	}
 
-	// -- Right: session statistics, closed by the context-window segment --
+	// -- Second line left: session statistics, context window, then speed ----
 	const { totals, latestHit } = summarizeSessionUsage(ctx?.sessionManager);
 	const usage = ctx?.getContextUsage();
 	const contextTokens = usage?.tokens ?? null;
 	const contextPercent = usage?.percent ?? 0;
-	const contextWindow = usage?.contextWindow ?? 0;
-	const contextText = contextTokens !== null && contextTokens > 0 ? formatTokens(contextTokens) : undefined;
-	// Match ↑, ↓ and CH to the context-usage value, including its warning colors.
-	// Keep their numeric values in the original muted session-stat color.
-	const styleContextAccent = (text: string) =>
-		contextPercent > 90
-			? fg("error", text)
-			: contextPercent > 70
-				? styleContextWarning(theme, text)
-				: fg("accent", text);
+	const contextWindow = usage?.contextWindow ?? ctx?.model?.contextWindow ?? 0;
+	const contextText = contextTokens === null ? "?" : formatTokens(contextTokens);
+	// Context warnings apply only to context usage, not unrelated session labels.
+	const contextColor = contextPercent > 90 ? "error" : contextPercent > 70 ? footerWarningColor(theme) : "muted";
 
 	const cacheTokens = totals.cacheRead + totals.cacheWrite;
-	const cachePart = cacheTokens > 0 ? `/${styleCachedTokens(theme, formatTokens(cacheTokens))}` : "";
+	const cachePart = cacheTokens > 0 ? `/${dim(formatTokens(cacheTokens))}` : "";
 	const inputPart =
 		totals.input > 0 || cacheTokens > 0
-			? `${styleContextAccent("↑")}${styleSessionStat(theme, formatTokens(totals.input))}${cachePart}`
+			? `${fg("accent", "↑")}${styleSessionStat(theme, formatTokens(totals.input))}${cachePart}`
 			: undefined;
-	const contextPart = contextText === undefined ? undefined : styleContextAccent(contextText);
+	const contextPart = fg(contextColor, contextText);
 	const outputPart =
-		totals.output > 0 ? `${styleContextAccent("↓")}${styleSessionStat(theme, formatTokens(totals.output))}` : undefined;
+		totals.output > 0 ? `${fg("accent", "↓")}${styleSessionStat(theme, formatTokens(totals.output))}` : undefined;
 	const hitPart =
 		totals.cacheRead > 0 && latestHit !== undefined
-			? `${styleContextAccent("CH")}${styleSessionStat(theme, `${latestHit.toFixed(1)}%`)}`
+			? `${fg("accent", "CH")}${styleSessionStat(theme, `${latestHit.toFixed(1)}%`)}`
 			: undefined;
 	// Session cost ("$0.123"), pi's own footer format: the $ shares the accent
 	// color of the ↑/↓/CH markers, the amount stays muted. Only models with
 	// cost rates report one; subscription-backed providers show quota windows
 	// instead, so their cost stays hidden rather than reading "$0.000 (sub)".
 	const costPart =
-		totals.cost > 0 ? `${styleContextAccent("$")}${styleSessionStat(theme, totals.cost.toFixed(3))}` : undefined;
+		totals.cost > 0 ? `${fg("accent", "$")}${styleSessionStat(theme, totals.cost.toFixed(3))}` : undefined;
 	// Context-window segment: current context tokens / window total ("66k/1.0M").
-	// The usage number is accent (warning/error past its thresholds); the fixed
+	// The usage number is muted (warning/error past its thresholds); the fixed
 	// total stays dim, mirroring the cwd/branch split of the project line.
-	const windowPart =
-		contextPart === undefined
-			? undefined
-			: contextWindow > 0
-				? `${contextPart}/${dim(formatTokens(contextWindow))}`
-				: contextPart;
+	// Always show the capacity, even with zero or temporarily unknown usage.
+	const windowPart = `${contextPart}/${dim(contextWindow > 0 ? formatTokens(contextWindow) : "?")}`;
 
-	const quantityStats = [inputPart, outputPart, hitPart, costPart].filter((part): part is string => part !== undefined);
-	const compactQuantity = [inputPart, outputPart, costPart].filter((part): part is string => part !== undefined);
-	// Token speed now leads the model line on the left, so the right side is
-	// input/cache, output, cache-hit and cost statistics, closed by the
-	// context/window segment behind a "·" separator.
-	const fullSessionParts =
-		quantityStats.length > 0
-			? windowPart
-				? [...quantityStats, `${dim("·")} ${windowPart}`]
-				: quantityStats
-			: windowPart
-				? [windowPart]
-				: [];
-	const compactSessionParts = compactQuantity.length > 0 ? compactQuantity : windowPart ? [windowPart] : [];
+	const quantity = [inputPart, outputPart, hitPart].filter(Boolean).join(" ");
+	const compactQuantity = [inputPart, outputPart].filter(Boolean).join(" ");
+	// Separate cost and context from the space-delimited token counters; the
+	// speed is appended by fitSessionLine only while every quota window fits.
 	const sessionVariants = Array.from(
-		new Set([fullSessionParts.join(" "), compactSessionParts.join(" "), ...(windowPart ? [windowPart] : [])]),
+		new Set([
+			[quantity, costPart, windowPart].filter(Boolean).join(sep),
+			[compactQuantity, costPart, windowPart].filter(Boolean).join(sep),
+			windowPart,
+		]),
 	);
-	if (sessionVariants.length === 0) sessionVariants.push("");
 
-	const line = fitFooterLine(width, modelSegments, sep, status, sessionVariants, 2);
-	return [truncateToWidth(line, width, "")];
+	const project = renderProjectText(H, width, theme);
+	const projectLine = status ? joinLR(width, project, status, 2) : project;
+	const sessionLine = fitSessionLine(width, sessionVariants, speedSegment, modelSegments, sep);
+	return [truncateToWidth(projectLine, width, ""), truncateToWidth(sessionLine, width, "")];
 }
