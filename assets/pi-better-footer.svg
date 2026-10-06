@@ -75,21 +75,23 @@
   <g transform="translate(0 -6)">
     <text x="6" y="113.5" fill="#af87d7">↑</text>
     <text x="16" y="113.5" fill="#afafaf">18k</text>
-    <text x="46" y="113.5" fill="#dcdfe4">/</text>
-    <text x="56" y="113.5" fill="#878787">110k</text>
-    <text x="106" y="113.5" fill="#af87d7">↓</text>
-    <text x="116" y="113.5" fill="#afafaf">1.5k</text>
-    <text x="166" y="113.5" fill="#af87d7">CH</text>
-    <text x="186" y="113.5" fill="#afafaf">99.3%</text>
-    <text x="246" y="113.5" fill="#878787">·</text>
-    <text x="266" y="113.5" fill="#af87d7">$</text>
-    <text x="276" y="113.5" fill="#afafaf">0.060</text>
-    <text x="336" y="113.5" fill="#878787">·</text>
-    <text x="356" y="113.5" fill="#afafaf">20k</text>
-    <text x="386" y="113.5" fill="#dcdfe4">/</text>
-    <text x="396" y="113.5" fill="#878787">1.0M</text>
-    <text x="446" y="113.5" fill="#878787">·</text>
-    <text x="466" y="113.5" fill="#d7af5f">100</text>
-    <text x="496" y="113.5" fill="#878787">t/s</text>
+    <text x="56" y="113.5" fill="#af87d7">↓</text>
+    <text x="66" y="113.5" fill="#afafaf">1.5k</text>
+    <text x="116" y="113.5" fill="#af87d7">R</text>
+    <text x="126" y="113.5" fill="#afafaf">100k</text>
+    <text x="176" y="113.5" fill="#af87d7">W</text>
+    <text x="186" y="113.5" fill="#afafaf">10k</text>
+    <text x="226" y="113.5" fill="#af87d7">CH</text>
+    <text x="246" y="113.5" fill="#afafaf">99.3%</text>
+    <text x="306" y="113.5" fill="#878787">·</text>
+    <text x="326" y="113.5" fill="#af87d7">$</text>
+    <text x="336" y="113.5" fill="#afafaf">0.060</text>
+    <text x="396" y="113.5" fill="#878787">·</text>
+    <text x="416" y="113.5" fill="#afafaf">20k</text>
+    <text x="446" y="113.5" fill="#dcdfe4">/</text>
+    <text x="456" y="113.5" fill="#878787">1.0M</text>
+    <text x="506" y="113.5" fill="#878787">·</text>
+    <text x="526" y="113.5" fill="#d7af5f">100</text>
+    <text x="556" y="113.5" fill="#878787">t/s</text>
   </g>
 </svg>

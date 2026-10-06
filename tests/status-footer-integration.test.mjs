@@ -846,7 +846,7 @@ test("footer fits narrow terminal widths with project above usage and model", as
 		for (const line of lines) assert.ok(line.length <= width, `${width}: ${line}`);
 		if (width === 120) {
 			assert.equal(lines[0], "/test  main");
-			assert.ok(lines[1].startsWith("↑1.2k/500 ↓200 CH29.4% · $0.123 · 50k/100k · 20t/s"));
+			assert.ok(lines[1].startsWith("↑1.2k ↓200 R500 CH29.4% · $0.123 · 50k/100k · 20t/s"));
 			assert.ok(lines[1].endsWith("openai-codex/test-model high · 80%"));
 		}
 	}
@@ -860,7 +860,8 @@ test("footer fits narrow terminal widths with project above usage and model", as
 
 	h.ctx.getContextUsage = () => ({ tokens: 80000, percent: 80, contextWindow: 100000 });
 	const [, warning] = module.namespace.renderFooter(h, 500);
-	assert.match(warning, /<accent:↑><muted:1\.2k>\/<dim:500>/);
+	assert.match(warning, /<accent:↑><muted:1\.2k>/);
+	assert.match(warning, /<accent:R><muted:500>/);
 	assert.match(warning, /<accent:↓><muted:200>/);
 	assert.match(warning, /<accent:CH><muted:29\.4%>/);
 	assert.match(warning, /<accent:\$><muted:0\.123>/);
@@ -868,7 +869,8 @@ test("footer fits narrow terminal widths with project above usage and model", as
 
 	h.ctx.getContextUsage = () => ({ tokens: 95000, percent: 95, contextWindow: 100000 });
 	const [, error] = module.namespace.renderFooter(h, 500);
-	assert.match(error, /<accent:↑><muted:1\.2k>\/<dim:500>/);
+	assert.match(error, /<accent:↑><muted:1\.2k>/);
+	assert.match(error, /<accent:R><muted:500>/);
 	assert.match(error, /<accent:↓><muted:200>/);
 	assert.match(error, /<accent:CH><muted:29\.4%>/);
 	assert.match(error, /<error:95k>/);
@@ -965,7 +967,7 @@ test("system appearance overrides missing or stale COLORFGBG and follows live th
 		// Built-in light's warning falls below 4.5:1 on white; use its darker theme token.
 		assert.match(light, /<accent:1h> <syntaxFunction:25%>/);
 		assert.match(light, /<syntaxFunction:80k>/);
-		assert.match(light, /<dim:500>/);
+		assert.match(light, /<accent:R><muted:500>/);
 		assert.ok(!light.includes("\x1b["), "colors are delegated entirely to the theme");
 	}
 	process.env.COLORFGBG = "0;15";
@@ -974,7 +976,7 @@ test("system appearance overrides missing or stale COLORFGBG and follows live th
 	const dark = module.namespace.renderFooter(h, 1000).join("\n");
 	assert.match(dark, /<dim:1h> <warning:25%>/);
 	assert.match(dark, /<warning:80k>/);
-	assert.match(dark, /<dim:500>/);
+	assert.match(dark, /<accent:R><muted:500>/);
 	assert.ok(!dark.includes("\x1b["));
 });
 

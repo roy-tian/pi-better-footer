@@ -309,7 +309,8 @@ test("session segments match the requested order without dangling separators", (
 				usage: {
 					input: 18000,
 					output: 1500,
-					cacheRead: 110000,
+					cacheRead: 100000,
+					cacheWrite: 10000,
 					cost: { total: 0.06 },
 				},
 			},
@@ -324,27 +325,30 @@ test("session segments match the requested order without dangling separators", (
 	};
 	assert.match(
 		renderFooter(holder, 120)[1],
-		/^↑18k\/110k ↓1\.5k CH85\.9% · \$0\.060 · 20k\/1\.0M · 100t\/s {2,}test\/model$/,
+		/^↑18k ↓1\.5k R100k W10k CH78\.1% · \$0\.060 · 20k\/1\.0M · 100t\/s {2,}test\/model$/,
 	);
 	entries[0].message.usage.cost.total = 0;
 	// A replaced session entry invalidates the append-only statistics cache.
 	entries[0] = { ...entries[0] };
-	assert.match(renderFooter(holder, 120)[1], /CH85\.9% · 20k\/1\.0M · 100t\/s/);
+	assert.match(renderFooter(holder, 120)[1], /CH78\.1% · 20k\/1\.0M · 100t\/s/);
 	state.tokenSpeed = null;
-	assert.match(renderFooter(holder, 120)[1], /CH85\.9% · 20k\/1\.0M/);
+	assert.match(renderFooter(holder, 120)[1], /CH78\.1% · 20k\/1\.0M/);
 	holder.ctx.sessionManager.getEntries = () => [];
 	holder.ctx.getContextUsage = () => undefined;
 	assert.match(renderFooter(holder, 120)[1], /^\?\/\? {2,}test\/model$/);
 });
 
-test("input/cache and context/capacity share muted numerators and dim denominators", () => {
+test("cache counters use accent labels and muted values while context capacity stays dim", () => {
 	const state = createState();
 	state.tokenSpeed = 34;
 	const ctx = {
 		sessionManager: {
 			getCwd: () => "/test",
 			getEntries: () => [
-				{ type: "message", message: { role: "assistant", usage: { input: 26000, cacheRead: 53000 } } },
+				{
+					type: "message",
+					message: { role: "assistant", usage: { input: 26000, cacheRead: 53000, cacheWrite: 2000 } },
+				},
 			],
 		},
 		getContextUsage: () => ({ tokens: 26000, percent: 2.4, contextWindow: 1100000 }),
@@ -352,9 +356,34 @@ test("input/cache and context/capacity share muted numerators and dim denominato
 	for (const name of ["dark", "light", "custom-palette"]) {
 		const theme = { name, fg: (color: string, text: string) => `<${color}:${text}>`, bold: (text: string) => text };
 		const line = renderFooter({ state, ctx, theme }, 1000)[1];
-		assert.ok(line.includes("<accent:↑><muted:26k>/<dim:53k>"));
+		assert.ok(line.includes("<accent:↑><muted:26k>"));
+		assert.ok(line.includes("<accent:R><muted:53k> <accent:W><muted:2.0k>"));
 		assert.ok(line.includes("<muted:26k>/<dim:1.1M>"));
 		assert.ok(line.includes("<muted:34><dim:t/s>"));
+	}
+});
+
+test("native cache counters render independently and hide zero token counts", () => {
+	for (const [cacheRead, cacheWrite, expected] of [
+		[0, 0, ""],
+		[500, 0, "R500 CH100.0% · "],
+		[0, 200, "W200 · "],
+		[500, 200, "R500 W200 CH71.4% · "],
+	] as const) {
+		const ctx = {
+			sessionManager: {
+				getCwd: () => "/test",
+				getEntries: () => [
+					{ type: "message", message: { role: "assistant", usage: { input: 0, output: 0, cacheRead, cacheWrite } } },
+				],
+			},
+			getContextUsage: () => ({ tokens: 0, percent: 0, contextWindow: 100000 }),
+		} as unknown as ExtensionContext;
+		const holder = { state: createState(), ctx };
+		assert.equal(renderFooter(holder, 120)[1].trimEnd().split(/ {2,}/)[0], `${expected}0/100k`);
+		for (const width of [0, 1, 8, 18, 32, 80, 120]) {
+			for (const line of renderFooter(holder, width)) assert.ok(visibleWidth(line) <= width);
+		}
 	}
 });
 

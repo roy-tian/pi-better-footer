@@ -267,11 +267,14 @@ export function renderFooter(H: FooterRenderHandle & { theme?: FooterTheme }, wi
 	// Context warnings apply only to context usage, not unrelated session labels.
 	const contextColor = contextPercent > 90 ? "error" : contextPercent > 70 ? footerWarningColor(theme) : "muted";
 
-	const cacheTokens = totals.cacheRead + totals.cacheWrite;
-	const cachePart = cacheTokens > 0 ? `/${dim(formatTokens(cacheTokens))}` : "";
 	const inputPart =
-		totals.input > 0 || cacheTokens > 0
-			? `${fg("accent", "↑")}${styleSessionStat(theme, formatTokens(totals.input))}${cachePart}`
+		totals.input > 0 ? `${fg("accent", "↑")}${styleSessionStat(theme, formatTokens(totals.input))}` : undefined;
+	// Match pi's native counters: separate cache reads and writes, hiding zero values.
+	const cacheReadPart =
+		totals.cacheRead > 0 ? `${fg("accent", "R")}${styleSessionStat(theme, formatTokens(totals.cacheRead))}` : undefined;
+	const cacheWritePart =
+		totals.cacheWrite > 0
+			? `${fg("accent", "W")}${styleSessionStat(theme, formatTokens(totals.cacheWrite))}`
 			: undefined;
 	const contextPart = fg(contextColor, contextText);
 	const outputPart =
@@ -292,8 +295,8 @@ export function renderFooter(H: FooterRenderHandle & { theme?: FooterTheme }, wi
 	// Always show the capacity, even with zero or temporarily unknown usage.
 	const windowPart = `${contextPart}/${dim(contextWindow > 0 ? formatTokens(contextWindow) : "?")}`;
 
-	const quantity = [inputPart, outputPart, hitPart].filter(Boolean).join(" ");
-	const compactQuantity = [inputPart, outputPart].filter(Boolean).join(" ");
+	const quantity = [inputPart, outputPart, cacheReadPart, cacheWritePart, hitPart].filter(Boolean).join(" ");
+	const compactQuantity = [inputPart, outputPart, cacheReadPart, cacheWritePart].filter(Boolean).join(" ");
 	// Separate cost and context from the space-delimited token counters; the
 	// speed is appended by fitSessionLine only while every quota window fits.
 	const sessionVariants = Array.from(

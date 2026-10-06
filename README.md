@@ -11,6 +11,7 @@ Keep [Pi](https://pi.dev/)'s familiar footer layout, with provider quotas, gener
 ## Features
 
 - **Usage at a glance.** Provider quotas and reset countdowns sit alongside model information; session tokens, cache hit rate, cost, and context usage stay in their familiar place. Colors follow your theme, with warnings for low quota and high context usage.
+- **Native token counters.** `↑` shows non-cached input, `↓` output, `R` cache reads, and `W` cache writes. These are session totals; zero counters are hidden. Cache reads and writes are shown separately, as in Pi's native footer.
 - **Generation speed.** `t/s` excludes time to first token and tool execution. `~` marks a live estimate; replies without tool calls finish with a reading based on reported token usage, excluding reported reasoning tokens.
 - **Project details.** The directory and branch are joined by the project's `package.json` version and added/removed line counts, including untracked files. Updates follow workspace activity.
 - **Model continuity.** Restore the last model and thinking level per directory, and skip providers with confirmed exhausted quota when cycling models. Both options can be toggled independently.
